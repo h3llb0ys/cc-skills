@@ -2,7 +2,7 @@
 # Запуск codex-участника консилиума: read-only, промпт из файла, итог в -o.
 # Usage: codex-run.sh <model-slug> <effort> <repo> <prompt-file> <out-file> [session-id]
 #   session-id задан → resume этой сессии тем же промптом-файлом.
-# Печатает строку `session id:` — сохрани её сразу, задним числом сессию не найти.
+# Печатает строку `session id:` по завершении; во время прогона она уже лежит в <итог>.stdout.
 
 emulate -L zsh
 setopt err_return no_unset pipe_fail
@@ -18,11 +18,16 @@ local model=$1 effort=$2 repo=$3 prompt=$4 out=$5 session=${6:-}
 [[ -d $repo ]]   || { print -u2 "repo not a directory: $repo"; exit 2 }
 [[ -e $out ]]    && { print -u2 "out file exists, choose a unique name: $out"; exit 2 }
 
+# Вне git codex откажется стартовать («Not inside a trusted directory») — добавляем флаг.
+# Отказ по той же причине внутри git флагом не лечится: доверие каталогу настраивается в codex.
+local -a gitflag=()
+git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || gitflag=(--skip-git-repo-check)
+
 if [[ -n $session ]]; then
-  codex exec -C "$repo" -s read-only -m "$model" -c model_reasoning_effort="$effort" \
+  codex exec -C "$repo" -s read-only "${gitflag[@]}" -m "$model" -c model_reasoning_effort="$effort" \
     -o "$out" resume "$session" - < "$prompt" > "$out.stdout" 2>&1
 else
-  codex exec -C "$repo" -s read-only -m "$model" -c model_reasoning_effort="$effort" \
+  codex exec -C "$repo" -s read-only "${gitflag[@]}" -m "$model" -c model_reasoning_effort="$effort" \
     -o "$out" - < "$prompt" > "$out.stdout" 2>&1
 fi
 
