@@ -179,21 +179,18 @@
   Суффиксы слагов догадкой не конструируй.
 - До запуска создай chatId отдельным вызовом (`cursor-agent create-chat`, лимит — параметр
   timeout Bash tool) и зафиксируй значение литералом в маппинге участник→chatId:
-  переменная `$CHAT_ID` следующий вызов Bash tool не переживёт. Сам запуск оформляй
-  скриптом в scratchpad (`zsh <файл>`): инлайновый `"$(cat prompt.txt)"` режется хуком lean-ctx.
+  переменная `$CHAT_ID` следующий вызов Bash tool не переживёт.
   Интерактивный `cursor-agent ls` в Bash неисполним
   (Ink падает без TTY: «Raw mode is not supported»); незалогиненный или недоверенный запуск
   виснет так же — поэтому `--trust` в команде обязателен.
 - Запуск — только скриптом, готовая обёртка в самом скилле:
   `zsh ~/.claude/skills/consilium/scripts/cursor-run.sh <слаг> <воркспейс> <prompt.md> <итог.md> <chatId>`
-  (chatId — **литералом** с предыдущего шага, вызов — в run_in_background). `$(cat …)` внутри
-  скрипта легален: хук инспектирует только инлайновую команду Bash tool. Промпт кладём в файл —
-  кавычки пользователя в аргументе означают инъекцию; длинные списки находок тоже файлом.
-  Что делает обёртка, если понадобится своя версия:
+  (chatId — **литералом** с предыдущего шага, вызов — в run_in_background). Промпт кладём
+  в файл — кавычки пользователя в аргументе означают инъекцию; длинные списки находок тоже
+  файлом. Что делает обёртка, если понадобится своя версия:
 
 ```bash
 #!/bin/zsh
-export LEAN_CTX_DISABLED=1
 cursor-agent -p --output-format=text --mode ask --sandbox enabled --trust \
   --model cursor-grok-4.6-high --workspace <корень репо> --resume <chatId-литералом> \
   -- "$(cat <scratchpad>/prompt.txt)" > <scratchpad>/grok-out.md 2> <scratchpad>/grok-err.log
@@ -218,7 +215,6 @@ cursor-agent -p --output-format=text --mode ask --sandbox enabled --trust \
   сессия продолжается (переменные между вызовами не живут — только литерал).
   ChatId потерян → участник статичен: свежий `create-chat`-прогон с его позицией текстом.
   Раунды верификации — свежий `create-chat`, не resume.
-- `LEAN_CTX_DISABLED=1` обязателен и здесь: у cursor свой lean-ctx-хук в `~/.cursor/hooks.json`.
 - Кросс-вендорный адвокат дьявола: grok — хороший кандидат для атаки на GPT+Claude консенсус.
 
 ## Адвокат дьявола

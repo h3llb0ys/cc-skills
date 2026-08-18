@@ -44,7 +44,7 @@
    Плюс моё собственное ревью вердикта как председателя: вопросы и сомнения встают в очередь.
 2. Каждому участнику, к которому есть вопросы (не всем подряд), — продолжение его живой
    сессии по механике вендора (запуск и фолбэки — `references/council.md`):
-   - codex: `LEAN_CTX_DISABLED=1 codex exec -C <репо> -s read-only -m <модель участника> -c model_reasoning_effort=<его effort> -o <scratchpad>/meeting-<итерация>-<модель>.md resume <его session id> - <<'EOF' … EOF`
+   - codex: `codex exec -C <репо> -s read-only -m <модель участника> -c model_reasoning_effort=<его effort> -o <scratchpad>/meeting-<итерация>-<модель>.md resume <его session id> - <<'EOF' … EOF`
      (`-m`/`-c` — модель и effort **этого** участника, не дефолт: иначе молча подменишь участника);
    - opus: SendMessage по его agentId, ответ придёт task-notification'ом;
    - grok: тот же каркас cursor-agent со **старым** `--resume <его chatId>` и новым файлом вывода.

@@ -18,8 +18,6 @@ local model=$1 effort=$2 repo=$3 prompt=$4 out=$5 session=${6:-}
 [[ -d $repo ]]   || { print -u2 "repo not a directory: $repo"; exit 2 }
 [[ -e $out ]]    && { print -u2 "out file exists, choose a unique name: $out"; exit 2 }
 
-export LEAN_CTX_DISABLED=1   # иначе PreToolUse-хук lean-ctx блокирует внутренний шелл codex
-
 if [[ -n $session ]]; then
   codex exec -C "$repo" -s read-only -m "$model" -c model_reasoning_effort="$effort" \
     -o "$out" resume "$session" - < "$prompt" > "$out.stdout" 2>&1

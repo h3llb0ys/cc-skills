@@ -17,8 +17,6 @@ local model=$1 workspace=$2 prompt=$3 out=$4 chat=$5
 [[ -d $workspace ]] || { print -u2 "workspace not a directory: $workspace"; exit 2 }
 [[ -n $chat ]]    || { print -u2 "chat-id пустой — cursor-agent уйдёт в интерактивный выбор"; exit 2 }
 
-export LEAN_CTX_DISABLED=1   # у cursor свой lean-ctx-хук в ~/.cursor/hooks.json
-
 # Промпт передаём подстановкой из файла: кавычки пользователя в аргументе — инъекция.
 # stderr отдельным файлом, иначе текст ошибки уедет в синтез как «находки».
 cursor-agent -p --output-format=text --mode ask --sandbox enabled --trust \

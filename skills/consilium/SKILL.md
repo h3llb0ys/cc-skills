@@ -16,16 +16,6 @@ Codex сам читает `AGENTS.md` репозитория — это осоз
 `.rules` (к `AGENTS.md` отношения не имеет) — тоже не добавляй.
 Read-only = санбокс блокирует запись через shell-команды модели; свои state-файлы сессии codex пишет всё равно.
 
-## Чтение файлов скилла и входных документов
-
-- Reference-файлы скилла и входные документы вне репозитория читай native `Read`: `ctx_read`
-  на таких путях отвечает `path escapes project root`. Правило «native Read только для edit-gate»
-  здесь неприменимо: обходной путь есть только через переконфигурацию lean-ctx
-  (`extra_roots`/`allow_paths`), а её ради чтения одного файла не делают.
-- Проверяя код по утверждению участника, читай с `fresh=true`: `ctx_read` возвращает
-  `[unchanged]` и для файлов, ни разу не прочитанных в этой сессии, — вместо содержимого
-  придёт пустота, а на этом чтении строится вердикт.
-
 ## Выбор модели
 
 Модель и усилие — **раздельные** параметры: `-m <слаг>` и `-c model_reasoning_effort=<effort>`.
@@ -75,11 +65,9 @@ Read-only = санбокс блокирует запись через shell-ко
 - codex: `zsh ~/.claude/skills/consilium/scripts/codex-run.sh <слаг> <effort> <репо> <prompt.md> <итог.md> [session-id]`
 - cursor: `zsh ~/.claude/skills/consilium/scripts/cursor-run.sh <слаг> <воркспейс> <prompt.md> <итог.md> <chatId>`
 
-Вызывай обёртку **отдельной командой** Bash tool: в пайпе или `&&`-цепочке хук lean-ctx режет
-`zsh` не в первой позиции («not in the shell allowlist»), и команда не выполняется целиком.
-Обёртки ставят `-s read-only` и `LEAN_CTX_DISABLED=1`, проверяют, что out-файл уникален,
-кладут stdout целиком в `<итог>.stdout` и печатают `session id:`. Собственный пайп к codex
-не приделывай: `| tail`/`| grep` обрезают баннер, и id участника теряется вместе с ним.
+Обёртки ставят `-s read-only`, проверяют, что out-файл уникален, кладут stdout целиком
+в `<итог>.stdout` и печатают `session id:`. Собственный пайп к codex не приделывай:
+`| tail`/`| grep` обрезают баннер, и id участника теряется вместе с ним.
 Ручная сборка команды нужна только там, где скрипт не подходит: `review` со скоуп-флагами
 и разовые пробы CLI.
 
@@ -91,13 +79,9 @@ Read-only = санбокс блокирует запись через shell-ко
 Канонический каркас (строго до сабкоманды обязательны только `-C`/`-s`):
 
 ```
-LEAN_CTX_DISABLED=1 codex exec -C <корень репо> -s read-only $MODEL [review] -o <scratchpad>/<уникальный файл>.md …
+codex exec -C <корень репо> -s read-only $MODEL [review] -o <scratchpad>/<уникальный файл>.md …
 ```
 
-- `LEAN_CTX_DISABLED=1` обязателен: это штатный kill-switch lean-ctx («bypass ALL + prevent hook»),
-  иначе PreToolUse-хук из `~/.codex/hooks.json` блокирует внутренний шелл codex (replace mode) —
-  встроенный `review` не может вычислить дифф, а редирект в ctx_shell может зависнуть.
-  Править сам `hooks.json` бесполезно: lean-ctx восстанавливает его при старте сессии.
 - Строго parent — только `-C`/`-s` (после `review`/`resume` — exit 2). `-m`/`-c`/`-o` есть
   и у сабкоманд; канон: `-m`/`-c` до сабкоманды, `-o` для `review` — после неё
   (parent-`-o` проверен и работает для `exec` и `resume`, для пути `review` — не подтверждён).
@@ -119,7 +103,7 @@ LEAN_CTX_DISABLED=1 codex exec -C <корень репо> -s read-only $MODEL [r
   заранее вычисли merge-base SHA, явно скажи, включать ли незакоммиченное:
 
 ```bash
-LEAN_CTX_DISABLED=1 codex exec -C /path/to/repo -s read-only \
+codex exec -C /path/to/repo -s read-only \
   -m gpt-5.6-sol -c model_reasoning_effort=high \
   review -o "<scratchpad>/codex-review-1.md" - <<'CODEX_PROMPT'
 Ты — код-ревьюер. Проревьюй изменения текущей ветки относительно merge-base abc1234 (origin/main).
@@ -162,7 +146,7 @@ CODEX_PROMPT
 `review` работает только с git-диффами. Для документов используй `codex exec`, промпт — через heredoc (stdin занят промптом, `</dev/null` не нужен):
 
 ```bash
-LEAN_CTX_DISABLED=1 codex exec -m gpt-5.6-sol -c model_reasoning_effort=high -s read-only \
+codex exec -m gpt-5.6-sol -c model_reasoning_effort=high -s read-only \
   -C /path/to/repo \
   -o "<scratchpad>/codex-doc-review-1.md" - <<'EOF'
 Ты — архитектурный ревьюер. Прочитай docs/plans/ticket-1234-plan.md.
@@ -264,7 +248,7 @@ EOF
 5. Уточняющий вопрос → resume строго по session id (строка `session id:` в шапке вывода —
    единственное, что бери из stdout). Каркас тот же, что у обычного вызова, — санбокс и `-o`
    не наследуются молча, задавай явно; вопрос только через heredoc (аргументная форма — инъекция):
-   `LEAN_CTX_DISABLED=1 codex exec -C <репо> -s read-only -m <модель прогона> -c model_reasoning_effort=<его effort> -o <уникальный файл> resume <id> - <<'EOF' … EOF`.
+   `codex exec -C <репо> -s read-only -m <модель прогона> -c model_reasoning_effort=<его effort> -o <уникальный файл> resume <id> - <<'EOF' … EOF`.
    `--last` не используй: фильтруется по cwd и гонится с параллельными сессиями.
 6. Ничего не исправляй по находкам без явной просьбы.
 7. Пользователь отменил или сменил запрос → останови фоновые прогоны (TaskStop по их task id)
@@ -277,11 +261,13 @@ EOF
    поэтому опознавай по chatId). PID Bash tool не возвращает, поэтому «добить всё по имени
    процесса» нельзя — в выдаче бывают прогоны соседних сессий пользователя.
    Пробы CLI (свои и в промптах участникам) ограничивай таймаутом: в Bash tool — параметром
-   `timeout` самого вызова; команды `timeout(1)` на macOS нет (и perl-alarm в подстановке
-   режется хуком) — внешним timeout только если он установлен.
+   `timeout` самого вызова; команды `timeout(1)` на macOS нет — внешним timeout только если
+   он установлен.
    Значения из `$(...)` (session-refs, chatId) не живут между вызовами Bash tool — выведи
-   и подставляй в следующие команды литералом. Сложные запуски с `$()`/пайпами оформляй
-   скриптом в scratchpad и вызывай `zsh <файл>`: хуки среды режут `$()` в командной позиции.
+   и подставляй в следующие команды литералом. Многошаговые запуски оформляй скриптом
+   в scratchpad и вызывай `zsh <файл>`: PreToolUse-хуки среды (свои у Claude Code, codex
+   и cursor) инспектируют инлайновую команду и могут её отклонить — содержимое скрипта они
+   не разбирают.
    Список длинных находок для раундов/совещания клади файлом и передавай путь — heredoc
    с десятками находок раздувает команду и растит риск коллизии делимитера. Codex в read-only
    читает и вне `-C` (проверено пробой), воркспейс grok — нет: в составе с grok вход кладётся
@@ -292,7 +278,6 @@ EOF
 | Ошибка | Как правильно |
 |---|---|
 | `-m sol-high` (слитный слаг) | `-m gpt-5.6-sol -c model_reasoning_effort=high` |
-| Забыт `LEAN_CTX_DISABLED=1` | PreToolUse-хук lean-ctx блокирует шелл codex — `review` виснет |
 | Скоуп-флаг + позиционный промпт у `review` | Несовместимы: либо флаг без промпта, либо custom-промпт со скоупом текстом |
 | `-C`/`-s` после слова `review` | Это опции `exec` — ставь до сабкоманды |
 | Вызов без `-s read-only` | Санбокс возьмётся из конфига, возможно workspace-write |
@@ -302,7 +287,6 @@ EOF
 | `--approve-for-me`, `--dangerously-bypass-*`, `-s workspace-write`, `-s danger-full-access` | Запрещены: ревью только на чтение |
 | Ревью без контекста задачи | Тикет, цель изменений и хотелки пользователя — в промпт |
 | Мультимодельный режим по памяти | Сначала прочитай `references/council.md` / `references/deliberation.md` / `references/design.md` |
-| `ctx_read` на файлах скилла и входе вне репо | Отвечает `path escapes project root` — читай native `Read` |
 | Результат клод-сабагента остался только в контексте | Сохраняй в файл scratchpad в том же ходе: компактификация съест голос участника |
 | Проектирование до сбора требований | Этап 0 в `references/chair.md`: числа спрашиваются у заказчика до запуска участников |
 | Цикл закрыт молчаливым «все согласны» | Кворум и ревью итогового документа — `references/finalization.md` |
