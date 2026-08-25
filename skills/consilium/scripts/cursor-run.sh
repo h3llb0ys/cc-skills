@@ -16,6 +16,8 @@ local model=$1 workspace=$2 prompt=$3 out=$4 chat=$5
 [[ -r $prompt ]]  || { print -u2 "prompt file not readable: $prompt"; exit 2 }
 [[ -d $workspace ]] || { print -u2 "workspace not a directory: $workspace"; exit 2 }
 [[ -n $chat ]]    || { print -u2 "chat-id пустой — cursor-agent уйдёт в интерактивный выбор"; exit 2 }
+# Симметрично codex-run.sh: без этой проверки ретрай молча затирает единственный артефакт прогона.
+[[ -e $out ]]     && { print -u2 "out file exists, choose a unique name: $out"; exit 2 }
 
 # Промпт передаём подстановкой из файла: кавычки пользователя в аргументе — инъекция.
 # stderr отдельным файлом, иначе текст ошибки уедет в синтез как «находки».
