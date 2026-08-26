@@ -21,8 +21,15 @@ local model=$1 workspace=$2 prompt=$3 out=$4 chat=$5
 
 # Промпт передаём подстановкой из файла: кавычки пользователя в аргументе — инъекция.
 # stderr отдельным файлом, иначе текст ошибки уедет в синтез как «находки».
+# err_return прервал бы скрипт до чтения кода — поэтому код снимаем через `|| rc=$?`.
+local rc=0
 cursor-agent -p --output-format=text --mode ask --sandbox enabled --trust \
   --model "$model" --workspace "$workspace" --resume "$chat" \
-  -- "$(cat "$prompt")" > "$out" 2> "$out.err"
+  -- "$(cat "$prompt")" > "$out" 2> "$out.err" || rc=$?
 
-# Падение определяем по exit code, а не по пустоте файла (см. таблицу вендоров в council.md).
+# Сбой — ненулевой exit ЛИБО пустой out при exit 0 (таблица вендоров, cycle-state.md).
+# Текст из .err содержательным ответом не является.
+if (( rc != 0 )); then
+  print -u2 "cursor-agent exit $rc — см. $out.err"; exit $rc
+fi
+[[ -s $out ]] || { print -u2 "пустой $out при exit 0 — результата нет, см. $out.err"; exit 1 }
