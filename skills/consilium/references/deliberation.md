@@ -194,6 +194,8 @@ command diff -u -rN rev-N current > <абсолютный путь>/iteration-N.
 cp -R rev-N verify
 patch -p1 --dry-run -d verify -i <абсолютный путь>/iteration-N.patch < /dev/null
 grep '^+++' <абсолютный путь>/iteration-N.patch    # состав: каждый путь обязан быть путём предмета
+grep '^+++' <абсолютный путь>/iteration-N.patch | grep -vc '^+++ current/'   # 0: всё, что не current/, собрано мимо копии
+command diff -rq <предмет> current                     # обязан быть пуст: копия свежая
 ```
 
   `rm -rf` перед копированием обязателен, и это не гигиена: на второй итерации `cp -R <предмет>
