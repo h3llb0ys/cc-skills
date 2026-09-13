@@ -377,14 +377,14 @@
   виснет так же — поэтому `--trust` в команде обязателен.
 - Запуск — только скриптом (команда — `SKILL.md`, «Промпт для участников»): chatId подставляется
   **литералом** с предыдущего шага, вызов — в run_in_background. Промпт кладём
-  в файл — кавычки пользователя в аргументе означают инъекцию; длинные списки находок тоже
-  файлом. Что делает обёртка, если понадобится своя версия:
+  в файл и подаём через stdin — в argv промпт виден любому `ps` и упирается в `ARG_MAX`.
+  Что делает обёртка, если понадобится своя версия:
 
 ```bash
 #!/bin/zsh
 cursor-agent -p --output-format=text --mode ask --sandbox enabled --trust \
   --model cursor-grok-4.6-high --workspace <корень репо> --resume <chatId-литералом> \
-  -- "$(cat <scratchpad>/prompt.txt)" > <scratchpad>/grok-out.md 2> <scratchpad>/grok-err.log
+  < <scratchpad>/prompt.txt > <scratchpad>/grok-out.md 2> <scratchpad>/grok-err.log
 ```
 
 - `--resume` с пустым значением опасен: параметр опционален, и cursor-agent уйдёт

@@ -16,7 +16,7 @@ local model=$1 effort=$2 repo=$3 prompt=$4 out=$5 session=${6:-}
 
 [[ -r $prompt ]] || { print -u2 "prompt file not readable: $prompt"; exit 2 }
 [[ -d $repo ]]   || { print -u2 "repo not a directory: $repo"; exit 2 }
-[[ -e $out ]]    && { print -u2 "out file exists, choose a unique name: $out"; exit 2 }
+[[ -e $out || -e $out.stdout ]]    && { print -u2 "out or sidecar file exists, choose a unique name: $out"; exit 2 }
 
 # Вне git codex откажется стартовать («Not inside a trusted directory») — добавляем флаг.
 # Отказ по той же причине внутри git флагом не лечится: доверие каталогу настраивается в codex.

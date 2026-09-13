@@ -17,15 +17,15 @@ local model=$1 workspace=$2 prompt=$3 out=$4 chat=$5
 [[ -d $workspace ]] || { print -u2 "workspace not a directory: $workspace"; exit 2 }
 [[ -n $chat ]]    || { print -u2 "chat-id пустой — cursor-agent уйдёт в интерактивный выбор"; exit 2 }
 # Симметрично codex-run.sh: без этой проверки ретрай молча затирает единственный артефакт прогона.
-[[ -e $out ]]     && { print -u2 "out file exists, choose a unique name: $out"; exit 2 }
+[[ -e $out || -e $out.err ]]     && { print -u2 "out or sidecar file exists, choose a unique name: $out"; exit 2 }
 
-# Промпт передаём подстановкой из файла: кавычки пользователя в аргументе — инъекция.
+# Промпт идёт через stdin, а не аргументом: в argv он виден любому `ps` и упирается в ARG_MAX.
 # stderr отдельным файлом, иначе текст ошибки уедет в синтез как «находки».
 # err_return прервал бы скрипт до чтения кода — поэтому код снимаем через `|| rc=$?`.
 local rc=0
 cursor-agent -p --output-format=text --mode ask --sandbox enabled --trust \
   --model "$model" --workspace "$workspace" --resume "$chat" \
-  -- "$(cat "$prompt")" > "$out" 2> "$out.err" || rc=$?
+  < "$prompt" > "$out" 2> "$out.err" || rc=$?
 
 # Сбой — ненулевой exit ЛИБО пустой out при exit 0 (таблица вендоров, cycle-state.md).
 # Текст из .err содержательным ответом не является.
