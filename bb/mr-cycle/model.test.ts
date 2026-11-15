@@ -33,6 +33,26 @@ describe("newCycle", () => {
     expect(cycle.checks).toEqual({});
     expect(new Set(statuses(cycle))).toEqual(new Set(["pending"]));
   });
+
+  it("keeps counting iterations for the same title", () => {
+    const cycle = newCycle(newCycle(null, NOW, "feature/a"), LATER, "feature/a");
+
+    expect(cycle).toMatchObject({ iteration: 2, title: "feature/a" });
+  });
+
+  it("restarts at iteration 1 for another title", () => {
+    const previous = newCycle(newCycle(null, NOW, "feature/a"), NOW, "feature/a");
+
+    expect(newCycle(previous, LATER, "feature/b")).toMatchObject({ iteration: 1, title: "feature/b" });
+  });
+
+  it("restarts at iteration 1 when a title replaces an untitled cycle", () => {
+    expect(newCycle(newCycle(null, NOW), LATER, "feature/a").iteration).toBe(1);
+  });
+
+  it("omits the title key without a title", () => {
+    expect(newCycle(null, NOW)).not.toHaveProperty("title");
+  });
 });
 
 describe("setStage", () => {

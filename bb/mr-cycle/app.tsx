@@ -11,7 +11,7 @@ import {
 } from "@get-bb/plugin-sdk/app";
 
 import { rpcContract } from "./contract";
-import { caption, CycleView, ProgressRing } from "./cycle-view";
+import { caption, CycleView, heading, ProgressRing } from "./cycle-view";
 import { ChecklistIcon, CYCLE_ICON } from "./icons";
 import { progress, type Cycle } from "./model";
 
@@ -42,7 +42,7 @@ function StackCard({ threadId }: { threadId: string }) {
   return (
     <CollapsibleStackCard
       label="MR cycle"
-      title={`MR cycle · ${caption(cycle)}`}
+      title={`${heading(cycle)} · ${caption(cycle)}`}
       icon={CYCLE_ICON}
       isActive={!complete}
       dismiss={{
@@ -76,7 +76,10 @@ function RowBadge({ thread, data }: ExperimentalThreadRowMetadataProps<Cycles>) 
   const { done, total, complete } = progress(cycle);
 
   return (
-    <span className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground" title={`MR cycle · ${caption(cycle)}`}>
+    <span
+      className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground"
+      title={`${heading(cycle)} · ${caption(cycle)}`}
+    >
       <ProgressRing cycle={cycle} />
       {complete ? "✓" : `${done}/${total}`}
     </span>

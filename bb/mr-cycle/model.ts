@@ -22,6 +22,7 @@ export const SUBSTEPS: Readonly<Record<number, readonly { key: string; label: st
 };
 
 export const NOTE_MAX = 120;
+export const TITLE_MAX = 80;
 export const CHECKS_MAX = 12;
 export const CHECK_NAME = /^[a-z][a-z0-9-]{0,23}$/;
 
@@ -37,6 +38,8 @@ const stageSchema = z.object({
 });
 
 export const cycleSchema = z.object({
+  /** The MR the cycle runs for, usually its branch. */
+  title: z.string().max(TITLE_MAX).optional(),
   iteration: z.number().int().min(1),
   updatedAt: z.string(),
   stages: z.array(stageSchema).length(STAGES.length),
@@ -52,9 +55,13 @@ export type Cycle = z.infer<typeof cycleSchema>;
 const pendingStage = (): Stage => ({ status: "pending", runs: 0, substeps: [] });
 const isClosed = (status: StageStatus) => status === "done" || status === "skipped";
 
-export function newCycle(previous: Cycle | null, now: string): Cycle {
+// A thread can run cycles for several MRs in a row: only a rerun of the same MR counts as the next iteration.
+export function newCycle(previous: Cycle | null, now: string, title?: string): Cycle {
+  const rerun = previous !== null && previous.title === title;
+
   return {
-    iteration: (previous?.iteration ?? 0) + 1,
+    ...(title === undefined ? {} : { title }),
+    iteration: rerun ? previous.iteration + 1 : 1,
     updatedAt: now,
     stages: STAGES.map(pendingStage),
     checks: {},

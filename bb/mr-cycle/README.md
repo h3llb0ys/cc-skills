@@ -63,7 +63,7 @@ bb settings experiment threadRowMetadata true
 
 | Команда | Что делает |
 |---|---|
-| `bb mr-cycle start` | новая итерация, все этапы в ожидании |
+| `bb mr-cycle start [--title <ветка>]` | новый цикл вместо прошлого: этапы, заметки и проверки сброшены; та же ветка — следующая итерация, другая — итерация 1 |
 | `bb mr-cycle stage <0-9> <running\|done\|skipped> [--note <текст>]` | статус этапа; запуск этапа закрывает предыдущий и сбрасывает следующие |
 | `bb mr-cycle sub 7 <bottom\|top\|mutation> <done\|pending>` | подшаг пирамиды тестов |
 | `bb mr-cycle check <имя> <ok\|fail>` | результат проверки: build, vet, lint, unit, integration |
@@ -71,6 +71,8 @@ bb settings experiment threadRowMetadata true
 | `bb mr-cycle clear` | убрать цикл из треда |
 
 Состояние хранится в metadata треда, поэтому живёт вместе с тредом и переживает перезапуск bb.
+В треде один цикл — последний: запуск цикла для другого MR в том же треде заменяет прошлый.
+Виджет и бейдж есть только у тредов, где цикл запускался.
 
 ## Разработка
 

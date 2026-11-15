@@ -5,6 +5,7 @@ import {
   CHECKS_MAX,
   NOTE_MAX,
   STAGES,
+  TITLE_MAX,
   SUBSTEPS,
   checkStatusSchema,
   newCycle,
@@ -19,7 +20,7 @@ import type { CycleStore } from "./store";
 
 export const USAGE = [
   "Usage (inside a bb thread, or with --thread <id>):",
-  "  bb mr-cycle start                                         begin a new iteration, every stage pending",
+  "  bb mr-cycle start [--title <branch>]                      new MR cycle; the same title counts as the next iteration",
   "  bb mr-cycle stage <0-9> <running|done|skipped> [--note <text>]",
   "  bb mr-cycle sub <stage> <key> <done|pending>              stage 7 keys: bottom, top, mutation",
   "  bb mr-cycle check <name> <ok|fail>                        e.g. build, vet, lint, unit, integration",
@@ -28,7 +29,7 @@ export const USAGE = [
 ].join("\n");
 
 export const COMMANDS = [
-  { name: "start", summary: "Begin a new MR cycle iteration", usage: "bb mr-cycle start" },
+  { name: "start", summary: "Begin an MR cycle, replacing the thread's previous one", usage: "bb mr-cycle start [--title <branch>]" },
   { name: "stage", summary: "Set a stage's status", usage: "bb mr-cycle stage <0-9> <running|done|skipped> [--note <text>]" },
   { name: "sub", summary: "Mark a stage substep", usage: "bb mr-cycle sub <stage> <key> <done|pending>" },
   { name: "check", summary: "Record a check result", usage: "bb mr-cycle check <name> <ok|fail>" },
@@ -41,11 +42,13 @@ interface Parsed {
   json: boolean;
   thread?: string;
   note?: string;
+  title?: string;
 }
 
 class UsageError extends Error {}
 
 const STATUS_MARK = { pending: " ", running: ">", done: "x", skipped: "-" } as const;
+const VALUE_OPTIONS: Record<string, "thread" | "note" | "title"> = { "--thread": "thread", "--note": "note", "--title": "title" };
 
 function parseArgs(argv: readonly string[]): Parsed {
   const parsed: Parsed = { positional: [], json: false };
@@ -55,10 +58,11 @@ function parseArgs(argv: readonly string[]): Parsed {
       parsed.json = true;
       continue;
     }
-    if (arg === "--thread" || arg === "--note") {
+    const option = VALUE_OPTIONS[arg];
+    if (option !== undefined) {
       const value = argv[++i];
       if (value === undefined) throw new UsageError(`${arg} needs a value`);
-      parsed[arg === "--thread" ? "thread" : "note"] = value;
+      parsed[option] = value;
       continue;
     }
     parsed.positional.push(arg);
@@ -76,9 +80,9 @@ function stageIndex(raw: string | undefined): number {
   return index;
 }
 
-function note(raw: string | undefined): string | undefined {
+function text(option: string, raw: string | undefined, max: number): string | undefined {
   const trimmed = raw?.trim();
-  if (trimmed !== undefined && trimmed.length > NOTE_MAX) throw new UsageError(`--note is longer than ${NOTE_MAX} characters`);
+  if (trimmed !== undefined && trimmed.length > max) throw new UsageError(`${option} is longer than ${max} characters`);
 
   return trimmed === "" ? undefined : trimmed;
 }
@@ -87,7 +91,9 @@ export function summary(cycle: Cycle): string {
   const { done, total, current, complete } = progress(cycle);
   const where = complete || current === null ? "complete" : `stage ${current} ${cycle.stages[current].status}`;
 
-  return `MR cycle · iteration ${cycle.iteration} · ${done}/${total} · ${where}`;
+  const title = cycle.title === undefined ? "" : ` · ${cycle.title}`;
+
+  return `MR cycle${title} · iteration ${cycle.iteration} · ${done}/${total} · ${where}`;
 }
 
 function describe(cycle: Cycle): string {
@@ -107,18 +113,18 @@ function apply(
   cycle: Cycle | null,
   command: string,
   args: readonly string[],
-  rawNote: string | undefined,
+  parsed: Parsed,
   now: string,
 ): Cycle {
   const base = cycle ?? newCycle(null, now);
   switch (command) {
     case "start":
-      return newCycle(cycle, now);
+      return newCycle(cycle, now, text("--title", parsed.title, TITLE_MAX));
     case "stage": {
       const status = stageStatusSchema.exclude(["pending"]).safeParse(args[1]);
       if (!status.success) throw new UsageError("stage status must be running, done or skipped");
 
-      return setStage(base, stageIndex(args[0]), status.data, note(rawNote), now);
+      return setStage(base, stageIndex(args[0]), status.data, text("--note", parsed.note, NOTE_MAX), now);
     }
     case "sub": {
       const index = stageIndex(args[0]);
@@ -167,7 +173,7 @@ export async function runCli(
 
       return { exitCode: 0, stdout: "MR cycle cleared." };
     }
-    const next = apply(cycle, command, args, parsed.note, now());
+    const next = apply(cycle, command, args, parsed, now());
     await store.write(threadId, next);
 
     return { exitCode: 0, stdout: parsed.json ? JSON.stringify(next) : summary(next) };

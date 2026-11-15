@@ -5,7 +5,7 @@
 
 | Когда | Команда |
 |---|---|
-| старт цикла, в том числе повторного | `bb mr-cycle start` |
+| старт цикла — нового MR или повторного прогона | `bb mr-cycle start --title "$(git branch --show-current)"` — заменяет прошлый цикл треда |
 | начало этапа N (9 — итоговый отчёт) | `bb mr-cycle stage N running` |
 | конец этапа | `bb mr-cycle stage N done --note "<итог в 2–5 словах>"`, например «4 исправлено», «+7 кейсов» |
 | этап не нужен | `bb mr-cycle stage N skipped --note "<причина>"` |

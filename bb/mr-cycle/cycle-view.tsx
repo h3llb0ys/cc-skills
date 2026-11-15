@@ -21,6 +21,10 @@ export function percent(cycle: Cycle): number {
   return Math.round((done / total) * 100);
 }
 
+export function heading(cycle: Cycle): string {
+  return cycle.title === undefined ? "MR cycle" : `MR cycle · ${cycle.title}`;
+}
+
 export function caption(cycle: Cycle): string {
   const { done, total, current, complete } = progress(cycle);
   if (complete || current === null) return "цикл завершён · ничего не закоммичено";
@@ -133,6 +137,11 @@ export function CycleView({ cycle }: { cycle: Cycle }) {
 
   return (
     <div className="text-foreground">
+      {cycle.title === undefined ? null : (
+        <div className="truncate font-mono text-[11px] text-muted-foreground" title={cycle.title}>
+          {cycle.title}
+        </div>
+      )}
       <div className="mb-2 flex items-baseline gap-2.5">
         <span className="bg-clip-text text-3xl font-bold tracking-tight text-transparent" style={gradient}>
           {percent(cycle)}%

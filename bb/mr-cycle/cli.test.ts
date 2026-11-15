@@ -54,6 +54,26 @@ describe("runCli", () => {
     expect(cycles.get(THREAD)?.stages[0]).toEqual({ status: "running", note: "writing", runs: 1, substeps: [] });
   });
 
+  it("starts a cycle for another MR at iteration 1 and replaces the old one", async () => {
+    const { store, cycles } = memoryStore();
+    await run(store, "start", "--title", "feature/a");
+    await run(store, "stage", "0", "done", "--note", "old");
+    await run(store, "check", "lint", "fail");
+    const got = await run(store, "start", "--title", " feature/b ");
+
+    expect(got.stdout).toBe("MR cycle · feature/b · iteration 1 · 0/10 · stage 0 pending");
+    expect(cycles.get(THREAD)).toMatchObject({ iteration: 1, title: "feature/b", checks: {} });
+    expect(cycles.get(THREAD)?.stages[0]).toStrictEqual({ status: "pending", runs: 0, substeps: [] });
+  });
+
+  it("counts a rerun of the same MR as the next iteration", async () => {
+    const { store, cycles } = memoryStore();
+    await run(store, "start", "--title", "feature/a");
+    await run(store, "start", "--title", "feature/a");
+
+    expect(cycles.get(THREAD)?.iteration).toBe(2);
+  });
+
   it("starts the next iteration", async () => {
     const { store, cycles } = memoryStore({ [THREAD]: newCycle(null, NOW) });
     await run(store, "start");
@@ -127,6 +147,7 @@ describe("runCli", () => {
     [["check", "Build", "ok"], "check name"],
     [["check", "build", "green"], "ok or fail"],
     [["deploy"], "unknown command deploy"],
+    [["start", "--title", "x".repeat(81)], "longer than 80"],
   ])("rejects %j", async (argv, message) => {
     const { store, cycles } = memoryStore();
     const got = await run(store, ...argv);
