@@ -141,3 +141,7 @@ bb/mr-cycle/             # плагин bb; skills/mr-cycle — симлинк �
 skills/commit-split/
 └── SKILL.md             # что разбивать, правила, формат заголовка и ответа
 ```
+
+## Jira Thread Links для bb
+
+Плагин [`bb/jira-thread-links`](bb/jira-thread-links/README.md) показывает актуальные Jira-задачи в списке тредов и над полем ввода. Ссылки кликабельные; набор обновляет агент по намерению пользователя или пользователь через меню треда. Скилл: [`skills/jira-thread-links`](skills/jira-thread-links/SKILL.md).
