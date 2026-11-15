@@ -10,6 +10,10 @@
 [`skills/mr-cycle/bb.md`](../../skills/mr-cycle/bb.md)). Руками ничего делать не нужно: запустите
 цикл как обычно — «прогони цикл», `/mr-cycle`.
 
+Отметки ставит агент по инструкции скилла. Пропустил вызов — виджет отстаёт от реального этапа,
+сам цикл от этого не зависит. Вне bb, например в Claude Code в терминале, скилл работает так же,
+но без виджета.
+
 ## Установка
 
 Нужны bb 0.49+ и Node.js с npm.
@@ -42,7 +46,14 @@ ln -s ~/cc-skills/skills/mr-cycle ~/.claude/skills/mr-cycle
 | Секция «MR cycle» в карточке контекста справа | тред открыт страницей в широкой панели и включён эксперимент `threadContextCard`; тогда плашка над полем ввода не показывается |
 | Бейдж в списке тредов | включены эксперимент `threadRowMetadata` и Organize → Rows → Metadata в сайдбаре |
 
-Эксперименты включаются командой `bb settings experiment <ключ> true`.
+Эксперименты по умолчанию выключены. Включить:
+
+```bash
+bb settings experiment threadContextCard true
+bb settings experiment threadRowMetadata true
+```
+
+Проверить: `bb settings show --json`, поле `experiments`.
 
 После итогового отчёта виджет остаётся со сводкой цикла. Убрать всё сразу — `bb mr-cycle clear`.
 
