@@ -113,11 +113,8 @@ skills/consilium/
 
 Скилл работает у любого провайдера в [bb](https://getbb.app): плагин `bb/mr-cycle` подключает его
 в треды bb и показывает ход цикла — процент, этапы с отметками, проверки, бейдж в списке тредов.
-Внешний ревьюер в bb — дочерний тред, вне bb — субагент Claude Code.
-
-```bash
-bb plugin install git:https://github.com/h3llb0ys/cc-skills.git@main --subdirectory bb/mr-cycle
-```
+Внешний ревьюер в bb — дочерний тред, вне bb — субагент Claude Code. Установка и использование —
+[`bb/mr-cycle/README.md`](bb/mr-cycle/README.md).
 
 ```
 skills/mr-cycle/

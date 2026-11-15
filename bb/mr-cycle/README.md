@@ -1,0 +1,79 @@
+# MR cycle для bb
+
+Плагин [bb](https://getbb.app) для скилла [`mr-cycle`](../../skills/mr-cycle/SKILL.md):
+
+- подключает скилл в треды bb у любого провайдера — Claude Code, Codex, Pi, ACP;
+- показывает ход цикла в треде: процент, этапы 0–9 с отметками, подшаги пирамиды тестов,
+  результаты проверок, бейдж в списке тредов.
+
+Скилл сам отмечает этапы командой `bb mr-cycle` (таблица вызовов — в
+[`skills/mr-cycle/bb.md`](../../skills/mr-cycle/bb.md)). Руками ничего делать не нужно: запустите
+цикл как обычно — «прогони цикл», `/mr-cycle`.
+
+## Установка
+
+Нужны bb 0.49+ и Node.js с npm.
+
+```bash
+git clone https://github.com/h3llb0ys/cc-skills.git ~/cc-skills
+cd ~/cc-skills/bb/mr-cycle
+npm install
+bb plugin build .
+bb plugin install . --yes
+```
+
+Плагин ставится из этого каталога и читает его на месте: клон не удалять и не переносить.
+Переехал — `bb plugin install <новый путь> --yes`.
+
+Скилл в плагине — симлинк `skills/mr-cycle → ../../../skills/mr-cycle`, поэтому правки скилла
+в репозитории bb видит сразу. Чтобы тот же скилл был у Claude Code и вне bb:
+
+```bash
+ln -s ~/cc-skills/skills/mr-cycle ~/.claude/skills/mr-cycle
+```
+
+Обновление: `git pull`, затем `bb plugin build .` и `bb plugin reload mr-cycle`.
+
+## Где видно
+
+| Место | Когда показывается |
+|---|---|
+| Плашка над полем ввода | в треде, где идёт цикл; свёрнута, по клику раскрывается в чек-лист. Крестик скрывает её до следующей смены этапа |
+| Секция «MR cycle» в карточке контекста справа | тред открыт страницей в широкой панели и включён эксперимент `threadContextCard`; тогда плашка над полем ввода не показывается |
+| Бейдж в списке тредов | включены эксперимент `threadRowMetadata` и Organize → Rows → Metadata в сайдбаре |
+
+Эксперименты включаются командой `bb settings experiment <ключ> true`.
+
+После итогового отчёта виджет остаётся со сводкой цикла. Убрать всё сразу — `bb mr-cycle clear`.
+
+## Команды
+
+Внутри треда bb команда сама знает свой тред; снаружи — `--thread <id>`.
+
+| Команда | Что делает |
+|---|---|
+| `bb mr-cycle start` | новая итерация, все этапы в ожидании |
+| `bb mr-cycle stage <0-9> <running\|done\|skipped> [--note <текст>]` | статус этапа; запуск этапа закрывает предыдущий и сбрасывает следующие |
+| `bb mr-cycle sub 7 <bottom\|top\|mutation> <done\|pending>` | подшаг пирамиды тестов |
+| `bb mr-cycle check <имя> <ok\|fail>` | результат проверки: build, vet, lint, unit, integration |
+| `bb mr-cycle show [--json]` | состояние цикла в треде |
+| `bb mr-cycle clear` | убрать цикл из треда |
+
+Состояние хранится в metadata треда, поэтому живёт вместе с тредом и переживает перезапуск bb.
+
+## Разработка
+
+```bash
+npm test          # vitest: модель цикла и CLI
+npx tsc           # типы
+bb plugin build . && bb plugin reload mr-cycle
+```
+
+| Файл | Что в нём |
+|---|---|
+| `model.ts` | этапы, схема состояния, переходы |
+| `cli.ts` | разбор `bb mr-cycle` |
+| `store.ts` | чтение и запись metadata треда |
+| `contract.ts` | RPC-контракт, общий для сервера и интерфейса |
+| `server.ts` | регистрация RPC и команды |
+| `app.tsx`, `cycle-view.tsx`, `icons.tsx` | плашка, секция карточки, бейдж |
