@@ -145,3 +145,7 @@ skills/commit-split/
 ## Jira Thread Links для bb
 
 Плагин [`bb/jira-thread-links`](bb/jira-thread-links/README.md) показывает актуальные Jira-задачи в списке тредов и над полем ввода. Ссылки кликабельные; набор обновляет агент по намерению пользователя или пользователь через меню треда. Скилл: [`skills/jira-thread-links`](skills/jira-thread-links/SKILL.md).
+
+## Section Style для bb
+
+Плагин [`bb/section-style`](bb/section-style/README.md) добавляет иконки и цвет названий секций и проектов в стандартный список BB. Настройки доступны из меню заголовка → «Оформление…». Порядок тредов, группировка, высоты строк и внешние отступы сохраняются.
