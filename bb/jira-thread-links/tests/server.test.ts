@@ -46,3 +46,19 @@ test('saved badges survive a Jira outage and explicit refresh reports it', async
    await harness.behavior.callRpc('edit',{threadId:'thr_test',expectedRevision:1,operation:'replace',keys:[],reason:'manual'});
  } finally {await harness.lifecycle.dispose();}
 });
+
+test('imported Codex thread IDs work alongside native threads', async () => {
+ const imported = 'thr_cdx_c79cd1ce30ad51ddbcbd1e9415444562';
+ const {bb,harness} = createFakePluginHost({pluginId:'jira-thread-links',sdk:{threads:{get:async ({threadId})=>makeThreadResponse({id:threadId})}}});
+ plugin(bb);
+ try {
+   await harness.behavior.callRpc('edit',{threadId:imported,expectedRevision:0,operation:'replace',keys:[],reason:'manual'});
+   const result = await harness.behavior.callRpc('list',{threadIds:['thr_test',imported]}) as any;
+   assert.equal(result[imported].revision,1);
+   assert.deepEqual(result[imported].keys,[]);
+   assert.equal(result.thr_test.revision,0);
+   const refreshed = await harness.behavior.callRpc('refresh',{threadId:imported}) as any;
+   assert.equal(refreshed.revision,1);
+   await assert.rejects(harness.behavior.callRpc('list',{threadIds:['../thr_bad']}),/validation/);
+ } finally {await harness.lifecycle.dispose();}
+});

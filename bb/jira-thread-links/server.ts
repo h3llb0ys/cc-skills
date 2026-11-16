@@ -1,14 +1,18 @@
 import { defineRpcContract, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
+import { collectCandidates, type Candidate } from './lib/candidates';
 import { normalizeKeys, changeKeys } from './lib/bindings';
 import { BindingStore, bindingSchema } from './lib/store';
 
-const threadIdSchema = z.string().regex(/^thr_[a-z0-9]+$/);
+type ConversationScanRow = {kind:string; text?:string; role?:string; initiator?:string; children?:ConversationScanRow[] | null};
+
+const threadIdSchema = z.string().regex(/^thr_[a-z0-9]+(?:_[a-z0-9]+)*$/);
 const issueSchema = z.object({ key: z.string().regex(/^[A-Z][A-Z0-9_]*-[1-9]\d*$/), summary: z.string().max(1000), url: z.string().url().refine(url => new URL(url).protocol === 'https:') });
 const cachedIssueSchema = z.object({ issue: issueSchema, checkedAt: z.number() });
 const viewSchema = bindingSchema.extend({ issues: z.array(issueSchema), prefix: z.string() });
 const editSchema = z.object({ threadId: threadIdSchema, expectedRevision: z.number().int().nonnegative(), operation: z.enum(['add','remove','replace']), keys: z.array(z.string().max(100)).max(20), reason: z.string().min(1).max(500) });
 export const rpcContract = defineRpcContract({
+ candidates: { input: z.object({threadId: threadIdSchema}), output: z.object({ candidates: z.array(z.object({key: z.string(), context: z.string()})).max(100), truncated: z.boolean() }) },
  list: { input: z.object({ threadIds: z.array(threadIdSchema).max(200) }), output: z.record(z.string(), viewSchema) },
  edit: { input: editSchema, output: viewSchema },
  refresh: { input: z.object({threadId: threadIdSchema}), output: viewSchema },
@@ -61,6 +65,28 @@ export default function plugin(bb: BbPluginApi) {
    return view(input.threadId);
  }
  bb.rpc.register(rpcContract, {
+   candidates: async ({threadId}, {experimental_signal: signal}) => {
+     const thread = await bb.sdk.threads.get({threadId, signal});
+     const candidates = new Map<string, Candidate>();
+     collectCandidates(thread.title ?? '', candidates);
+     let cursor: {anchorId: string; anchorSeq: number} | null = null;
+     for (let page = 0; page < 50; page++) {
+       const timeline: {rows: ConversationScanRow[]; timelinePage: {olderCursor: {anchorId:string; anchorSeq:number} | null}} = await bb.sdk.threads.timeline({threadId, signal, segmentLimit:'100', includeNestedRows:'true', deferContent:'false',
+         ...(cursor ? {beforeAnchorId:cursor.anchorId, beforeAnchorSeq:String(cursor.anchorSeq)} : {})});
+       function scan(rows: typeof timeline.rows) {
+         for (const row of rows) {
+           if (row.kind === 'conversation' && (row.role === 'assistant' || row.initiator === 'user')) collectCandidates(row.text ?? '', candidates);
+           if (row.kind === 'turn' && row.children) scan(row.children);
+         }
+       }
+       scan(timeline.rows);
+       const older = timeline.timelinePage.olderCursor;
+       if (!older) return {candidates:[...candidates.values()], truncated:candidates.size >= 100};
+       if (candidates.size >= 100 || (cursor && cursor.anchorId === older.anchorId && cursor.anchorSeq === older.anchorSeq)) break;
+       cursor = older;
+     }
+     return {candidates:[...candidates.values()], truncated:true};
+   },
    list: async ({ threadIds }) => Object.fromEntries(await Promise.all([...new Set(threadIds)].map(async id => [id, await view(id)]))),
    edit,
    refresh: async ({threadId}) => {

@@ -17,6 +17,10 @@ function Overlay() {
  const [view, setView] = useState<View | null>(null);
  const [value, setValue] = useState('');
  const [error, setError] = useState('');
+ const [candidates, setCandidates] = useState<{key:string; context:string}[]>([]);
+ const [searching, setSearching] = useState(false);
+ const [searchError, setSearchError] = useState('');
+ const [truncated, setTruncated] = useState(false);
  const [pending, setPending] = useState(false);
  const dialog = useRef<HTMLDialogElement>(null);
  const generation = useRef(0);
@@ -44,6 +48,11 @@ function Overlay() {
    if (!editing) return;
    let active = true;
    setView(null); setError(''); setValue('');
+   setCandidates([]); setSearching(true); setSearchError(''); setTruncated(false);
+   rpc.call('candidates', {threadId:editing}).then(result => {
+     if (!active) return;
+     setCandidates(result.candidates); setTruncated(result.truncated);
+   }).catch(cause => { if (active) setSearchError(String(cause)); }).finally(() => { if (active) setSearching(false); });
    dialog.current?.showModal();
    rpc.call('list', { threadIds:[editing] }).then(rows => {
      if (!active) return;
@@ -69,12 +78,34 @@ function Overlay() {
      close(); await refresh();
    } catch (cause) { setError(String(cause)); } finally { setPending(false); }
  }
- return <dialog ref={dialog} onCancel={() => setEditing(null)} onClose={() => setEditing(null)} style={{background:'var(--background)',color:'var(--foreground)',border:'1px solid var(--border)',borderRadius:12,padding:24,width:'min(440px, 90vw)',boxShadow:'0 12px 60px #0006'}}>
+ const enteredKeys = value.split(/[\s,;]+/).filter(Boolean);
+ const selectedKeys = new Set(enteredKeys.map(key => /^\d+$/.test(key) && view?.prefix ? `${view.prefix}-${key}` : key.toUpperCase()));
+ function toggleCandidate(key: string, checked: boolean) {
+   setValue(current => {
+     const keys = current.split(/[\s,;]+/).filter(Boolean);
+     return (checked ? [...keys, key] : keys.filter(item => ( /^\d+$/.test(item) && view?.prefix ? `${view.prefix}-${item}` : item.toUpperCase()) !== key)).join(', ');
+   });
+ }
+ return <dialog aria-labelledby="jira-task-heading" ref={dialog} onCancel={() => setEditing(null)} onClose={() => setEditing(null)} style={{position:'fixed',inset:0,margin:'auto',maxHeight:'calc(100dvh - 48px)',overflowY:'auto',boxSizing:'border-box',background:'var(--background)',color:'var(--foreground)',border:'1px solid var(--border)',borderRadius:12,padding:24,width:'min(440px, 90vw)',boxShadow:'0 12px 60px #0006'}}>
    <form onSubmit={e => { e.preventDefault(); void save(); }}>
-     <h2 style={{fontSize:18,fontWeight:600,marginBottom:12}}>Актуальные задачи Jira</h2>
+     <h2 id="jira-task-heading" style={{fontSize:18,fontWeight:600,marginBottom:12}}>Актуальные задачи Jira</h2>
+     <fieldset style={{border:0,padding:0,margin:'0 0 20px'}} disabled={!view || pending}>
+       <legend style={{fontWeight:600,marginBottom:8}}>Задачи из переписки</legend>
+       <p style={{fontSize:12,opacity:.7,margin:'0 0 8px'}}>Отметь задачи, которые нужно привязать к треду.</p>
+       {searching && <p role="status">Ищем задачи в треде…</p>}
+       {searchError && <p role="alert">Не удалось прочитать переписку: {searchError}. Можно добавить задачи вручную.</p>}
+       {!searching && !searchError && !candidates.length && <p style={{fontSize:12,opacity:.7}}>Ключи задач в названии и сообщениях не найдены.</p>}
+       <div style={{maxHeight:'min(36dvh, 320px)',overflowY:'auto'}}>
+         {candidates.map(candidate => <label key={candidate.key} style={{display:'flex',gap:10,alignItems:'flex-start',padding:'8px 0',cursor:'pointer'}}>
+           <input type="checkbox" checked={selectedKeys.has(candidate.key)} onChange={event=>toggleCandidate(candidate.key,event.target.checked)} aria-label={candidate.key} style={{marginTop:3,flexShrink:0}} />
+           <span style={{minWidth:0}}><strong>{candidate.key}</strong><span style={{display:'block',fontSize:12,opacity:.7,overflowWrap:'anywhere'}}>{candidate.context}</span></span>
+         </label>)}
+       </div>
+       {truncated && <p style={{fontSize:12,opacity:.7}}>Показана часть результатов. Остальные задачи можно добавить вручную.</p>}
+     </fieldset>
      <label htmlFor="jira-task-keys">Номера задач через запятую</label>
      <input id="jira-task-keys" autoFocus value={value} onChange={e=>setValue(e.target.value)} disabled={!view || pending} placeholder="AFT-1196, AFT-1233" style={{display:'block',width:'100%',padding:8,border:'1px solid var(--border)',borderRadius:6,marginTop:6,background:'var(--background)'}} />
-     <p style={{fontSize:12,opacity:.7,marginTop:8}}>Пустое поле убирает все привязки.{view?.prefix ? ` Короткие номера относятся к ${view.prefix}.` : ' Указывай полный ключ задачи.'}</p>
+     <p style={{fontSize:12,opacity:.7,marginTop:8}}>Выбранные задачи и ручной ввод сохраняются вместе. Пустое поле убирает все привязки.{view?.prefix ? ` Короткие номера относятся к ${view.prefix}.` : ' Указывай полный ключ задачи.'}</p>
      {view?.issues.filter(issue => value.split(/[\s,;]+/).some(key=>key.toUpperCase()===issue.key)).map(issue => <div key={issue.key} style={{display:'flex',gap:8,marginTop:8,fontSize:12}}><span style={{flex:1}}>{issue.key} · {issue.summary}</span><button type="button" disabled={pending} onClick={()=>setValue(value.split(/[\s,;]+/).filter(k=>k.toUpperCase()!==issue.key).join(', '))} aria-label={`Убрать ${issue.key}`}>×</button></div>)}
      <button type="button" disabled={pending || !view} onClick={()=>void reloadEditor(true)} style={{fontSize:12,marginTop:12,textDecoration:'underline'}}>Обновить названия из Jira</button>
      {error && <button type="button" disabled={pending} onClick={()=>void reloadEditor()}>Перечитать привязку</button>}
