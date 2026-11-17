@@ -157,3 +157,7 @@ skills/commit-split/
 ## Workspace Labels для bb
 
 Плагин [`bb/workspace-labels`](bb/workspace-labels/README.md) показывает ветку или worktree рядом с заголовком треда либо под ним. Три вида подписи, автоматическое размещение с учётом Jira-ссылок и живой предпросмотр доступны в настройках плагина.
+
+## Diff Preview для bb
+
+Плагин [`bb/diff-preview`](bb/diff-preview/README.md) показывает диф файла по наведению в штатном списке **Changed files**. В настройках доступны задержка, положение окна и номера строк.
