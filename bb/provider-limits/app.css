@@ -1,0 +1,184 @@
+.pl-rail {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0;
+  gap: 12px;
+  width: 100%;
+}
+.pl-nav,
+.pl-rings,
+.pl-overflow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.pl-nav {
+  overflow: auto;
+  flex-shrink: 1;
+  min-height: 40px;
+  width: 100%;
+}
+.pl-rings {
+  margin-top: auto;
+  flex-shrink: 0;
+}
+.pl-nav-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.pl-nav-button:hover,
+.pl-nav-button[aria-current="page"] {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.pl-nav-button svg {
+  width: 20px;
+  height: 20px;
+}
+.pl-nav-button small {
+  position: absolute;
+  bottom: -4px;
+  font-size: 9px;
+}
+.pl-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  background: #42c9b0;
+  border-radius: 50%;
+}
+.pl-ring {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: default;
+  flex-shrink: 0;
+}
+.pl-ring > svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.pl-provider-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 36%;
+  height: 36%;
+}
+.pl-warning {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  font-size: 12px;
+  color: #fbbf24;
+}
+.pl-tooltip {
+  position: fixed;
+  z-index: 10000;
+  width: 300px;
+  max-width: calc(100vw - 80px);
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid #6666;
+  background: var(--background, #252525);
+  color: var(--foreground, #eee);
+  box-shadow: 0 8px 32px #0005;
+  font-size: 12px;
+  pointer-events: none;
+}
+.pl-tooltip > strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.pl-muted {
+  opacity: 0.65;
+}
+.pl-window {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+}
+.pl-header {
+  display: flex;
+  align-items: center;
+}
+.pl-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 680px;
+  font-size: 13px;
+}
+.pl-settings label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pl-settings input[type="number"] {
+  border: 1px solid #8886;
+  border-radius: 5px;
+  background: transparent;
+  padding: 5px;
+  width: 90px;
+  color: inherit;
+}
+.pl-settings fieldset {
+  border: 1px solid #8885;
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pl-settings button {
+  align-self: flex-start;
+  border: 1px solid #8886;
+  border-radius: 6px;
+  padding: 6px 14px;
+}
+.pl-status {
+  color: #fbbf24;
+}
+.pl-ring:focus-visible,
+.pl-nav-button:focus-visible {
+  outline: 2px solid #42c9b0;
+  outline-offset: 2px;
+}
+
+.pl-settings .pl-settings-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  gap: 14px;
+}
+.pl-rings {
+  max-height: 60%;
+  overflow-y: auto;
+  min-height: 0;
+}
