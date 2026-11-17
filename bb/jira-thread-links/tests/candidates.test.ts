@@ -6,7 +6,7 @@ import plugin from '../server';
 
 test('extracts keys and URLs, deduplicates case, ignores numbers and key fragments', () => {
  const found = new Map();
- collectCandidates('PRGROW-589 https://jira.example/browse/prgrow-589, AFT-12; 123 2026 xPRGROW-0 _AFT-3 AFT-4-extra',found);
+ collectCandidates(`PRGROW-589 https://jira.example/browse/prgrow-589, AFT-12; 123 2026 xPRGROW-0 _AFT-3 AFT-4-extra KEY-1 ${'A'.repeat(100)}-1`,found);
  assert.deepEqual([...found.keys()],['PRGROW-589','AFT-12']);
  assert.match(found.get('PRGROW-589').context,/PRGROW-589/);
 });

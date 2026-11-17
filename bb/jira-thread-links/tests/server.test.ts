@@ -62,3 +62,72 @@ test('imported Codex thread IDs work alongside native threads', async () => {
    await assert.rejects(harness.behavior.callRpc('list',{threadIds:['../thr_bad']}),/validation/);
  } finally {await harness.lifecycle.dispose();}
 });
+
+test('batch reads isolate failed threads and keep bindings with unavailable details editable', async () => {
+ const {bb,harness} = createFakePluginHost({
+   pluginId:'jira-thread-links',
+   sdk:{
+     threads:{get:async ({threadId})=>{
+       if (threadId === 'thr_missing') throw new Error('Thread missing');
+       return makeThreadResponse({id:threadId});
+     }},
+     plugins:{callRpc:async()=>{throw new Error('Jira offline');}},
+   },
+ });
+ plugin(bb);
+ try {
+   await bb.storage.kv.set('binding:thr_test',{keys:['AFT-1','AFT-2'],revision:1,reason:'test',updatedAt:1});
+   const result = await harness.behavior.callRpc('list',{threadIds:['thr_missing','thr_test']}) as Record<string, {keys:string[]; issues:unknown[]}>;
+   assert.deepEqual(Object.keys(result), ['thr_test']);
+   assert.deepEqual(result.thr_test.keys, ['AFT-1','AFT-2']);
+   assert.deepEqual(result.thr_test.issues, []);
+   await assert.rejects(harness.behavior.callRpc('list',{threadIds:['thr_missing']}),/Thread missing/);
+   const updated = await harness.behavior.callRpc('edit',{
+     threadId:'thr_test',expectedRevision:1,operation:'remove',keys:['AFT-1'],reason:'manual',
+   }) as {keys:string[]; revision:number};
+   assert.deepEqual(updated.keys, ['AFT-2']);
+   assert.equal(updated.revision, 2);
+ } finally {await harness.lifecycle.dispose();}
+});
+
+test('edit returns the committed revision without rereading the thread', async () => {
+ let reads = 0;
+ const {bb,harness} = createFakePluginHost({
+   pluginId:'jira-thread-links',
+   sdk:{threads:{get:async ({threadId})=>{
+     if (++reads > 1) throw new Error('Thread temporarily unavailable');
+     return makeThreadResponse({id:threadId});
+   }}},
+ });
+ plugin(bb);
+ try {
+   const updated = await harness.behavior.callRpc('edit',{
+     threadId:'thr_test',expectedRevision:0,operation:'replace',keys:[],reason:'manual',
+   }) as {revision:number};
+   assert.equal(updated.revision, 1);
+   assert.equal(reads, 1);
+ } finally {await harness.lifecycle.dispose();}
+});
+
+test('simultaneous cache misses for a shared issue make one Jira request', async () => {
+ let calls = 0;
+ const {bb,harness} = createFakePluginHost({
+   pluginId:'jira-thread-links',
+   sdk:{
+     threads:{get:async ({threadId})=>makeThreadResponse({id:threadId})},
+     plugins:{callRpc:async()=>{
+       calls++;
+       await new Promise(resolve=>setImmediate(resolve));
+       return {issue:{key:'AFT-1',summary:'Task',url:'https://jira.example/browse/AFT-1'}};
+     }},
+   },
+ });
+ plugin(bb);
+ try {
+   const binding = {keys:['AFT-1'],revision:1,reason:'test',updatedAt:1};
+   await bb.storage.kv.set('binding:thr_one',binding);
+   await bb.storage.kv.set('binding:thr_two',binding);
+   await harness.behavior.callRpc('list',{threadIds:['thr_one','thr_two']});
+   assert.equal(calls, 1);
+ } finally {await harness.lifecycle.dispose();}
+});

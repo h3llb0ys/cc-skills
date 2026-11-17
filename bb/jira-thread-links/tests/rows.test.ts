@@ -42,3 +42,20 @@ test('host rerender that resets row classes restores multiple-task layout', asyn
  assert.ok(row.classList.contains('jira-task-row-multiple'));
  decorate.dispose();
 });
+
+test('moving a reused thread row restores its layout in the new host container', async () => {
+ const { doc } = setup();
+ const decorate = decorateRows(doc);
+ try {
+   decorate.update({thr_a:[issue('AFT-1'),issue('AFT-2')]});
+   const oldRow = doc.querySelector('[data-sidebar-rename-row]')!;
+   const newRow = doc.createElement('div');
+   newRow.setAttribute('data-sidebar-rename-row', '');
+   oldRow.after(newRow);
+   newRow.append(oldRow.firstElementChild!);
+   await new Promise(resolve=>setTimeout(resolve,0));
+   assert.equal(oldRow.classList.contains('jira-task-row-multiple'), false);
+   assert.equal(newRow.classList.contains('jira-task-row-multiple'), true);
+   assert.equal(newRow.querySelectorAll('[data-jira-task-link]').length, 2);
+ } finally { decorate.dispose(); }
+});

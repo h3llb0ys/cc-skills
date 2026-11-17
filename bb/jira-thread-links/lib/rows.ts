@@ -31,7 +31,8 @@ export function decorateRows(doc: Document) {
      const tasks = (data[anchor.dataset.sidebarThreadId ?? ''] ?? []).filter(task => { try { return new URL(task.url).protocol === 'https:'; } catch { return false; } });
      const signature = JSON.stringify(tasks);
      const old = owned.get(anchor);
-     if (old?.signature === signature && old.links.isConnected && old.title === title) {
+     if (old?.signature === signature && old.title === title && old.row === row && old.content === content &&
+         old.links.parentElement === (tasks.length === 1 ? title : content)) {
        // React can rewrite the host's className when selection/status changes.
        // Add only missing classes so our MutationObserver does not loop.
        if (tasks.length === 1 && !old.title.classList.contains('jira-task-title-single')) old.title.classList.add('jira-task-title-single');
