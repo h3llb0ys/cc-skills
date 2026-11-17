@@ -16,6 +16,7 @@ test('editor selects multiple suggestions with manual input and saves only on co
  const slot=renderSlot(app.appOverlays[0],{}, {rpc:{
    list:()=>({thr_test:view}),
    candidates:()=>({candidates:[{key:'AFT-1',context:'First'},{key:'AFT-2',context:'Second'}],truncated:false}),
+   refresh:()=>({...view, revision:4, keys:['AFT-9'], issues:[{key:'AFT-9',summary:'Fresh title',url:'https://jira.example/browse/AFT-9'}]}),
    edit:(input:any)=>{edits.push(input);return view;},
  }});
  try {
@@ -30,6 +31,13 @@ test('editor selects multiple suggestions with manual input and saves only on co
    assert.equal(input.value,'AFT-1, AFT-9, AFT-2');
    fireEvent.click(first);
    assert.equal(input.value,'AFT-9, AFT-2');
+   fireEvent.click(slot.getByRole('button',{name:'Обновить названия из Jira'}));
+   await slot.findByText('AFT-9 · Fresh title');
+   assert.equal(input.value,'AFT-9, AFT-2');
+   fireEvent.change(input,{target:{value:'9, AFT-2'}});
+   fireEvent.click(slot.getByRole('button',{name:'Убрать AFT-9'}));
+   assert.equal(input.value,'AFT-2');
+   fireEvent.change(input,{target:{value:'AFT-9, AFT-2'}});
    assert.equal(edits.length,0);
    fireEvent.click(slot.getByRole('button',{name:'Сохранить'}));
    await waitFor(()=>assert.equal(edits.length,1));

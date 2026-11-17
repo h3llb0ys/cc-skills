@@ -9,6 +9,7 @@ type ConversationScanRow = {kind:string; text?:string; role?:string; initiator?:
 const threadIdSchema = z.string().regex(/^thr_[a-z0-9]+(?:_[a-z0-9]+)*$/);
 const issueSchema = z.object({ key: z.string().regex(/^[A-Z][A-Z0-9_]*-[1-9]\d*$/), summary: z.string().max(1000), url: z.string().url().refine(url => new URL(url).protocol === 'https:') });
 const cachedIssueSchema = z.object({ issue: issueSchema, checkedAt: z.number() });
+type CachedIssue = z.infer<typeof cachedIssueSchema>;
 const viewSchema = bindingSchema.extend({ issues: z.array(issueSchema), prefix: z.string() });
 const editSchema = z.object({ threadId: threadIdSchema, expectedRevision: z.number().int().nonnegative(), operation: z.enum(['add','remove','replace']), keys: z.array(z.string().max(100)).max(20), reason: z.string().min(1).max(500) });
 export const rpcContract = defineRpcContract({
@@ -22,11 +23,30 @@ export default function plugin(bb: BbPluginApi) {
    projectPrefixes: { type: 'string', label: 'Jira prefixes by BB project', description: 'JSON map of BB project ID to Jira prefix. Bare numbers are accepted only for configured projects.', default: '{}', experimental_schema: z.string().refine(value => { try { z.record(z.string(), z.string().regex(/^[A-Z][A-Z0-9_]*$/)).parse(JSON.parse(value)); return true; } catch { return false; } }, 'Use a JSON map, e.g. {"proj_example":"AFT"}') },
  });
  const store = new BindingStore(bb.storage.kv);
- const issueCache = new Map<string, z.infer<typeof cachedIssueSchema>>();
+ const issueCache = new Map<string, CachedIssue>();
+ const loadingIssues = new Map<string, Promise<CachedIssue>>();
  async function prefix(threadId: string) {
    const thread = await bb.sdk.threads.get({ threadId });
    const map = JSON.parse((await settings.get()).projectPrefixes) as Record<string,string>;
    return map[thread.projectId] ?? '';
+ }
+ async function fetchIssue(key: string): Promise<CachedIssue> {
+   const pending = loadingIssues.get(key);
+   if (pending) return pending;
+   const request = (async () => {
+     const detail = await bb.sdk.plugins.callRpc({ pluginId: 'jira-boards', method: 'issue', input: { key }, outputSchema: z.object({ issue: issueSchema }) });
+     if (detail.issue.key !== key) throw new Error(`Jira returned a different key for ${key}; use ${detail.issue.key}.`);
+     const entry = { issue: detail.issue, checkedAt: Date.now() };
+     await bb.storage.kv.set(`issue:${key}`, entry);
+     issueCache.set(key, entry);
+     return entry;
+   })();
+   loadingIssues.set(key, request);
+   try {
+     return await request;
+   } finally {
+     loadingIssues.delete(key);
+   }
  }
  async function lookup(key: string, force = false) {
    const stored = issueCache.get(key) ?? await bb.storage.kv.get(`issue:${key}`);
@@ -34,12 +54,7 @@ export default function plugin(bb: BbPluginApi) {
    const legacy = issueSchema.safeParse(stored).data;
    if (!force && cached && Date.now() - cached.checkedAt < 60 * 60 * 1000) return cached.issue;
    try {
-     const detail = await bb.sdk.plugins.callRpc({ pluginId: 'jira-boards', method: 'issue', input: { key }, outputSchema: z.object({ issue: issueSchema }) });
-     if (detail.issue.key !== key) throw new Error(`Jira returned a different key for ${key}; use ${detail.issue.key}.`);
-     const entry = { issue: detail.issue, checkedAt: Date.now() };
-     issueCache.set(key, entry);
-     await bb.storage.kv.set(`issue:${key}`, entry);
-     return entry.issue;
+     return (await fetchIssue(key)).issue;
    } catch (error) {
      // A read should retain saved badges during an outage. Explicit refresh
      // reports the failure; retry ordinary reads after a short cooldown.
@@ -49,20 +64,30 @@ export default function plugin(bb: BbPluginApi) {
      return fallback;
    }
  }
+ async function savedIssue(key: string) {
+   try {
+     return await lookup(key);
+   } catch (error) {
+     bb.log.warn(`Could not load saved Jira task details: jira_key=${key}, error=${String(error)}`);
+     return null;
+   }
+ }
  async function view(threadId: string) {
-   const binding = await store.read(threadId);
-   return { ...binding, issues: await Promise.all(binding.keys.map(key => lookup(key))), prefix: await prefix(threadId) };
+   const [binding, projectPrefix] = await Promise.all([store.read(threadId), prefix(threadId)]);
+   const issues = await Promise.all(binding.keys.map(savedIssue));
+   return { ...binding, issues: issues.filter(issue => issue !== null), prefix: projectPrefix };
  }
  async function edit(input: z.infer<typeof editSchema>) {
    const current = await store.read(input.threadId);
    if (current.revision !== input.expectedRevision) throw new Error('Jira binding changed. Read it again before editing.');
-   const keys = normalizeKeys(input.keys, await prefix(input.threadId));
+   const projectPrefix = await prefix(input.threadId);
+   const keys = normalizeKeys(input.keys, projectPrefix);
    const next = changeKeys(current.keys, input.operation, keys);
    if (next.length > 20) throw new Error('At most 20 active Jira tasks per thread.');
-   await Promise.all(next.map(key => lookup(key)));
-   await store.save(input.threadId, input.expectedRevision, next, input.reason);
+   const issues = await Promise.all(next.map(key => current.keys.includes(key) ? savedIssue(key) : lookup(key)));
+   const saved = await store.save(input.threadId, input.expectedRevision, next, input.reason);
    bb.realtime.publish('bindings-changed', { threadId: input.threadId });
-   return view(input.threadId);
+   return { ...saved, issues: issues.filter(issue => issue !== null), prefix: projectPrefix };
  }
  bb.rpc.register(rpcContract, {
    candidates: async ({threadId}, {experimental_signal: signal}) => {
@@ -87,7 +112,19 @@ export default function plugin(bb: BbPluginApi) {
      }
      return {candidates:[...candidates.values()], truncated:true};
    },
-   list: async ({ threadIds }) => Object.fromEntries(await Promise.all([...new Set(threadIds)].map(async id => [id, await view(id)]))),
+   list: async ({ threadIds }) => {
+     const ids = [...new Set(threadIds)];
+     if (ids.length === 1) return { [ids[0]]: await view(ids[0]) };
+     const results = await Promise.all(ids.map(async id => {
+       try {
+         return [id, await view(id)] as const;
+       } catch (error) {
+         bb.log.warn(`Could not read Jira bindings for thread: thread_id=${id}, error=${String(error)}`);
+         return null;
+       }
+     }));
+     return Object.fromEntries(results.filter(entry => entry !== null));
+   },
    edit,
    refresh: async ({threadId}) => {
      const binding = await store.read(threadId);
