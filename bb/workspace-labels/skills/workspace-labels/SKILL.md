@@ -16,6 +16,11 @@ metadata contributions keep the native line. Use
 The plugin settings include a live preview using fictional thread titles,
 branches and DEMO task badges. Its width slider changes only the preview.
 
+`hideMain` (default false, UI label "Скрывать main") hides the repository's default
+branch label, falling back to the name `main` when Git data is unavailable. It
+preserves worktree names and applies to the preview too. Use
+`bb plugin config workspace-labels set hideMain true` to enable it.
+
 Requires `threadRowMetadata` and `showRowMetadata` enabled in BB, and the Git plugin
 for live branches. A worktree's folder and current branch are in the tooltip.
 Jira bindings remain managed by Jira Thread Links, independently of this layout;

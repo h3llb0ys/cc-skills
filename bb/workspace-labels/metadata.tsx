@@ -8,8 +8,8 @@ function Glyph({ kind }: { kind: 'branch' | 'worktree' }) {
   </svg>;
 }
 
-export function WorkspaceMetadata({ environment, status, layout, autoInline = true }: { environment: Environment | null; status?: GitStatus; layout: Layout; autoInline?: boolean }) {
-  const model = workspaceLabels(environment, status, layout);
+export function WorkspaceMetadata({ environment, status, layout, autoInline = true, hideMain = false }: { environment: Environment | null; status?: GitStatus; layout: Layout; autoInline?: boolean; hideMain?: boolean }) {
+  const model = workspaceLabels(environment, status, layout, hideMain);
   if (!model) return null;
   return <span className={`workspace-labels workspace-labels-${layout}`} data-workspace-auto-inline={String(autoInline)} title={model.tooltip} aria-label={model.tooltip}>
     {model.labels.map(label => <span key={label.kind} className="workspace-labels-item" data-workspace-kind={label.kind}>

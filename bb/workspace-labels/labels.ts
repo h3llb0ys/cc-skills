@@ -10,7 +10,7 @@ export function parseLayout(value: unknown): Layout {
   return layouts.find(layout => layout === value) ?? 'subtitle';
 }
 
-export function workspaceLabels(environment: Environment | null, status: GitStatus | undefined, layout: Layout) {
+export function workspaceLabels(environment: Environment | null, status: GitStatus | undefined, layout: Layout, hideMain = false) {
   if (!environment || status?.outcome === 'not_applicable') return null;
   const live = status?.outcome === 'available' ? status.workspace : undefined;
   const knownCheckout = live && live.checkout.kind !== 'unknown';
@@ -26,7 +26,8 @@ export function workspaceLabels(environment: Environment | null, status: GitStat
   const name = pathName || environment.name;
   const labels: Label[] = [];
   if (worktree && name) labels.push({ kind: 'worktree', text: name });
-  if (branch && (!labels.length || layout === 'details')) labels.push({ kind: 'branch', text: branch });
+  const defaultBranch = live?.branch.defaultBranch ?? 'main';
+  if (branch && !(hideMain && branch === defaultBranch) && (!labels.length || layout === 'details')) labels.push({ kind: 'branch', text: branch });
   if (!labels.length) return null;
   const tooltip = [
     worktree ? `Worktree: ${environment.path ?? name ?? ''}` : environment.path,

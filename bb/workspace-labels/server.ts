@@ -2,6 +2,9 @@ import type { BbPluginApi } from '@get-bb/plugin-sdk';
 
 export default function plugin(bb: BbPluginApi) {
   bb.settings.define({
+    hideMain: {
+      type: 'boolean', label: 'Скрывать main', default: false,
+    },
     autoInline: {
       type: 'boolean', label: 'Собирать в одну строку, когда хватает места', default: true,
     },

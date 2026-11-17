@@ -5,6 +5,30 @@ import { JSDOM } from 'jsdom';
 import { workspaceLabels, parseLayout, layouts, type Environment } from '../labels';
 import { WorkspaceMetadata } from '../metadata';
 import { fitsInline } from '../adaptive';
+import { LayoutPreview } from '../preview';
+
+test('hideMain hides only the default branch in every layout and keeps worktree identity', () => {
+  const main = { outcome: 'available', workspace: { branch: { currentBranch: 'main', defaultBranch: 'main' }, checkout: { kind: 'branch' } } };
+  for (const layout of layouts) {
+    assert.equal(workspaceLabels({ ...environment, isWorktree: false }, main, layout, true), null);
+    assert.deepEqual(workspaceLabels(environment, main, layout, true)?.labels, [{ kind: 'worktree', text: 'title' }]);
+    assert.equal(workspaceLabels({ ...environment, isWorktree: false }, main, layout, false)?.labels[0].text, 'main');
+    assert.equal(workspaceLabels({ ...environment, isWorktree: false }, status, layout, true)?.labels[0].text, 'feature/title');
+  }
+  const master = { ...main, workspace: { ...main.workspace, branch: { currentBranch: 'master', defaultBranch: 'master' } } };
+  assert.equal(workspaceLabels({ ...environment, isWorktree: false }, master, 'subtitle', true), null);
+  assert.equal(workspaceLabels({ ...environment, isWorktree: false, branchName: 'main' }, undefined, 'subtitle', true), null);
+});
+
+test('a hidden main returns no metadata markup or empty preview metadata line', () => {
+  assert.equal(renderToStaticMarkup(<WorkspaceMetadata environment={{ ...environment, isWorktree: false, branchName: 'main' }} layout="subtitle" hideMain/>), '');
+  const dom = new JSDOM(renderToStaticMarkup(<LayoutPreview layout="details" autoInline hideMain/>));
+  const first = dom.window.document.querySelector('.workspace-preview-example')!;
+  assert.equal(first.querySelector('.workspace-preview-metadata'), null);
+  assert.equal(first.querySelector('.workspace-preview-title')?.textContent, 'Обновить каталог');
+  assert.ok(dom.window.document.querySelector('[data-workspace-kind="worktree"]'));
+  dom.window.close();
+});
 
 test('inline requires full width including a margin; never fits zero or missing measurements', () => {
   assert.equal(fitsInline(300, 298), true);

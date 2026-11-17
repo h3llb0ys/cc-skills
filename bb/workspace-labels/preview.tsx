@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { fitsInline } from './adaptive';
-import type { Environment, Layout } from './labels';
+import { workspaceLabels, type Environment, type Layout } from './labels';
 import { WorkspaceMetadata } from './metadata';
 
 type Example = { title: string; environment: Environment; tasks: string[] };
@@ -10,8 +10,10 @@ const examples: Example[] = [
   { title: 'Проверить карточку товара', environment: { path: '/projects/catalog', name: null, branchName: 'feature/product-card', isWorktree: false }, tasks: ['DEMO-81'] },
 ];
 
-function ExampleContents({ example, layout }: { example: Example; layout: Layout }) {
+function ExampleContents({ example, layout, hideMain }: { example: Example; layout: Layout; hideMain: boolean }) {
   const { title, environment, tasks } = example;
+  const status = { outcome: 'available', workspace: { branch: { currentBranch: environment.branchName, defaultBranch: 'main' }, checkout: { kind: 'branch' } } };
+  const hasMetadata = workspaceLabels(environment, status, layout, hideMain) !== null;
   const taskBadges = tasks.map(task => <span key={task} className="workspace-preview-task">{task}</span>);
   return <>
     <span className="workspace-preview-title-line">
@@ -20,37 +22,39 @@ function ExampleContents({ example, layout }: { example: Example; layout: Layout
       {tasks.length === 1 && <span className="workspace-preview-tasks">{taskBadges}</span>}
     </span>
     {tasks.length > 1 && <span className="workspace-preview-tasks workspace-preview-many">{taskBadges}</span>}
-    <span className="workspace-preview-metadata"><WorkspaceMetadata environment={environment} layout={layout} autoInline={false}
-      status={{ outcome: 'available', workspace: { branch: { currentBranch: environment.branchName }, checkout: { kind: 'branch' } } }}/></span>
+    {hasMetadata && <span className="workspace-preview-metadata"><WorkspaceMetadata environment={environment} layout={layout} autoInline={false}
+      status={status} hideMain={hideMain}/></span>}
   </>;
 }
 
-function ExampleRow({ example, layout, autoInline }: { example: Example; layout: Layout; autoInline: boolean }) {
+function ExampleRow({ example, layout, autoInline, hideMain }: { example: Example; layout: Layout; autoInline: boolean; hideMain: boolean }) {
   const row = useRef<HTMLDivElement>(null);
   const measure = useRef<HTMLDivElement>(null);
   const [inline, setInline] = useState(false);
   useLayoutEffect(() => {
     const container = row.current!;
     const natural = measure.current!;
-    const update = () => setInline(autoInline && !(layout === 'details' && example.environment.isWorktree) &&
+    const status = { outcome: 'available', workspace: { branch: { currentBranch: example.environment.branchName, defaultBranch: 'main' }, checkout: { kind: 'branch' } } };
+    const labelCount = workspaceLabels(example.environment, status, layout, hideMain)?.labels.length ?? 0;
+    const update = () => setInline(autoInline && labelCount <= 1 &&
       fitsInline(container.clientWidth, natural.getBoundingClientRect().width));
     const observer = new ResizeObserver(update);
     observer.observe(container);
     observer.observe(natural);
     update();
     return () => observer.disconnect();
-  }, [autoInline, layout, example]);
+  }, [autoInline, layout, example, hideMain]);
   return <div className="workspace-preview-example">
     <div ref={measure} className="workspace-preview-row workspace-preview-inline workspace-preview-measure" aria-hidden="true">
-      <ExampleContents example={example} layout={layout}/>
+      <ExampleContents example={example} layout={layout} hideMain={hideMain}/>
     </div>
     <div ref={row} className={`workspace-preview-row${inline ? ' workspace-preview-inline' : ''}`}>
-      <ExampleContents example={example} layout={layout}/>
+      <ExampleContents example={example} layout={layout} hideMain={hideMain}/>
     </div>
   </div>;
 }
 
-export function LayoutPreview({ layout, autoInline }: { layout: Layout; autoInline: boolean }) {
+export function LayoutPreview({ layout, autoInline, hideMain = false }: { layout: Layout; autoInline: boolean; hideMain?: boolean }) {
   const [width, setWidth] = useState(340);
   return <div className="workspace-preview">
     <p className="workspace-preview-description">Условные треды и задачи. Пример обновляется при изменении настроек.</p>
@@ -58,7 +62,7 @@ export function LayoutPreview({ layout, autoInline }: { layout: Layout; autoInli
       onChange={event => setWidth(Number(event.target.value))}/><output>{width} px</output></label>
     <div className="workspace-preview-sidebar" style={{ width }} aria-label="Пример списка тредов">
       <div className="workspace-preview-heading">Треды</div>
-      {examples.map(example => <ExampleRow key={example.title} example={example} layout={layout} autoInline={autoInline}/>)}
+      {examples.map(example => <ExampleRow key={example.title} example={example} layout={layout} autoInline={autoInline} hideMain={hideMain}/>)}
     </div>
     <p className="workspace-preview-description">{autoInline
       ? 'Если всё помещается, подпись появится рядом с заголовком. Если места мало — снизу.'

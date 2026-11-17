@@ -8,7 +8,7 @@ export const git = defineRpcContract({
     output: z.record(z.string(), z.object({
       outcome: z.string(),
       workspace: z.object({
-        branch: z.object({ currentBranch: z.string().nullable() }),
+        branch: z.object({ currentBranch: z.string().nullable(), defaultBranch: z.string().optional() }),
         checkout: z.object({ kind: z.string(), headSha: z.string().nullable().optional() }),
       }).optional(),
     })),
