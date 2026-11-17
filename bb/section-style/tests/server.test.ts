@@ -35,3 +35,37 @@ test('rejects unknown icons, CSS input, invalid emoji and invalid targets',async
   assert.deepEqual(await harness.behavior.callRpc('list',null),{});
  } finally {await harness.lifecycle.dispose();}
 });
+test('migrates legacy overrides on save and never resurrects a reset',async()=>{
+ const {bb,harness}=createFakePluginHost({pluginId:'section-style'});
+ try {
+  await bb.storage.kv.set('appearance-index',['section:sec_a','section:sec_b']);
+  await bb.storage.kv.set('appearance:section:sec_a',appearance);
+  await bb.storage.kv.set('appearance:section:sec_b',appearance);
+  plugin(bb);
+  assert.equal(Object.keys(await harness.behavior.callRpc('list',null) as object).length,2);
+  await harness.behavior.callRpc('save',{target:'section:sec_a',appearance:null});
+  await harness.behavior.callRpc('save',{target:'section:sec_b',appearance:null});
+  assert.deepEqual(await harness.behavior.callRpc('list',null),{});
+  assert.deepEqual(await bb.storage.kv.get('appearances'),{});
+ } finally {await harness.lifecycle.dispose();}
+});
+test('failed storage writes preserve old values and the queue recovers',async()=>{
+ const {bb,harness}=createFakePluginHost({pluginId:'section-style'});
+ let fail=false;
+ const set=bb.storage.kv.set.bind(bb.storage.kv);
+ plugin({...bb,storage:{...bb.storage,kv:{...bb.storage.kv,set:async(key,value)=>{
+  if(fail)throw new Error('storage unavailable');
+  await set(key,value);
+ }}}});
+ try {
+  await harness.behavior.callRpc('save',{target:'section:sec_a',appearance});
+  fail=true;
+  await assert.rejects(()=>harness.behavior.callRpc('save',{target:'section:sec_a',appearance:null}),/storage unavailable/);
+  await assert.rejects(()=>harness.behavior.callRpc('save',{target:'section:sec_b',appearance}),/storage unavailable/);
+  assert.deepEqual(await harness.behavior.callRpc('list',null),{'section:sec_a':appearance});
+  assert.equal(harness.realtimeSignals.length,1);
+  fail=false;
+  await harness.behavior.callRpc('save',{target:'section:sec_a',appearance:null});
+  assert.deepEqual(await harness.behavior.callRpc('list',null),{});
+ } finally {await harness.lifecycle.dispose();}
+});

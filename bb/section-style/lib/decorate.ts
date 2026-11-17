@@ -6,7 +6,7 @@ export function decorateHeaders(doc: Document) {
  let data: Record<string, Appearance> = {};
  let disposed = false;
  let queued = false;
- let active: Target | null = null;
+ let active: {target:Target; trigger:HTMLElement} | null = null;
  const decorated = new Set<HTMLElement>();
  const menuItems = new Set<HTMLElement>();
  const style = doc.createElement('style');
@@ -58,25 +58,23 @@ export function decorateHeaders(doc: Document) {
   }
   for (const title of decorated) if (!live.has(title)) clear(title);
   for (const item of menuItems) if (!item.isConnected) menuItems.delete(item);
-  if (!active) return;
-  for (const menu of doc.querySelectorAll<HTMLElement>('[role="menu"][data-state="open"]')) {
-   if (menu.querySelector('[data-section-style-menu]')) continue;
-   // Only the root menu opened from a heading, not its Sort / Organize submenu.
-   if (menu.getAttribute('data-side') && menuItems.size) continue;
-   const item = doc.createElement('button');
-   item.type='button'; item.role='menuitem'; item.tabIndex=0; item.dataset.sectionStyleMenu='';
-   const sample = menu.querySelector<HTMLElement>('[role="menuitem"]');
-   item.className = sample?.className ?? '';
-   item.textContent='Оформление…';
-   const target = {...active};
-   item.addEventListener('click', event => {
-    event.preventDefault(); event.stopPropagation();
-    menu.dispatchEvent(new doc.defaultView!.KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));
-    doc.defaultView!.requestAnimationFrame(() => { if (!disposed) doc.defaultView!.dispatchEvent(new doc.defaultView!.CustomEvent(editEvent,{detail:target})); });
-   });
-   menu.prepend(item); menuItems.add(item);
-   break;
-  }
+  if (!active || !active.trigger.isConnected) return;
+  const menuId = active.trigger.getAttribute('aria-controls');
+  const menu = menuId ? doc.getElementById(menuId) : null;
+  if (!menu || menu.getAttribute('role') !== 'menu' || menu.dataset.state !== 'open') return;
+  if (menu.querySelector('[data-section-style-menu]')) return;
+  const item = doc.createElement('button');
+  item.type='button'; item.role='menuitem'; item.tabIndex=0; item.dataset.sectionStyleMenu='';
+  const sample = menu.querySelector<HTMLElement>('[role="menuitem"]');
+  item.className = sample?.className ?? '';
+  item.textContent='Оформление…';
+  const target = {...active.target};
+  item.addEventListener('click', event => {
+   event.preventDefault(); event.stopPropagation();
+   menu.dispatchEvent(new doc.defaultView!.KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));
+   doc.defaultView!.requestAnimationFrame(() => { if (!disposed) doc.defaultView!.dispatchEvent(new doc.defaultView!.CustomEvent(editEvent,{detail:target})); });
+  });
+  menu.prepend(item); menuItems.add(item);
  }
  function schedule() { if (!queued && !disposed) { queued=true; doc.defaultView!.queueMicrotask(refresh); } }
  function track(event: Event) {
@@ -92,12 +90,16 @@ export function decorateHeaders(doc: Document) {
   if (!row?.contains(node)) return;
   // In a top-level section the container includes its threads; require the header itself.
   if (node !== row && node.closest('[data-sidebar-rename-row]') !== row) return;
-  if (event.type === 'contextmenu' || node.closest('button[aria-haspopup="menu"]')) active=found.target;
+  const trigger = node.closest<HTMLElement>('button[aria-haspopup="menu"]');
+  if (trigger) active={target:found.target,trigger};
  }
  function keyboard(event: KeyboardEvent) {
   const menu = (event.target as Element | null)?.closest?.('[role="menu"]');
   const own = menu?.querySelector<HTMLElement>('[data-section-style-menu]');
-  if (!menu || !own) return;
+  if (!menu || !own) {
+   if (['Enter',' ','ArrowDown','ArrowUp'].includes(event.key)) track(event);
+   return;
+  }
   const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].filter(item => item.closest('[role="menu"]') === menu && item.getAttribute('aria-disabled') !== 'true');
   const index = items.indexOf(doc.activeElement as HTMLElement);
   let focus: HTMLElement | undefined;
@@ -115,7 +117,7 @@ export function decorateHeaders(doc: Document) {
  doc.addEventListener('click',track,true);
  doc.addEventListener('contextmenu',track,true);
  const observer = new doc.defaultView!.MutationObserver(schedule);
- observer.observe(doc.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class','data-sidebar-section-id','data-sidebar-project-id','data-state']});
+ observer.observe(doc.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class','style','aria-controls','data-sidebar-section-id','data-sidebar-project-id','data-state']});
  refresh();
  return {
   update(next:Record<string,Appearance>) { data=next; refresh(); },

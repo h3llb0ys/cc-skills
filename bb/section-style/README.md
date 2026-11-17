@@ -9,6 +9,7 @@ new grouping, sorting, folders, or automatic thread moves.
 Open a heading's actions menu → **Оформление…**. Pick one of 16 outline icons, then choose a preset or custom color. **Сохранить** applies it;
 **Отмена** leaves it unchanged; **Сбросить** removes this heading's override.
 The same editor is available under Settings → Plugins → Section Style.
+The editor loads saved choices before allowing changes; a failed load offers Retry.
 
 Colors affect only the label and its icon. An icon reserves 20 px inside the label;
 row heights, outer padding, vertical gaps, controls, and thread indentation stay

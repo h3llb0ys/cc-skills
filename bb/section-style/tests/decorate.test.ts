@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom';
 import { decorateHeaders, editEvent } from '../lib/decorate';
 const tick=()=>new Promise(resolve=>setTimeout(resolve,30));
 function setup() {
- const dom=new JSDOM(`<html><head></head><body><div data-sidebar-project-id="proj_a"><div data-sidebar-rename-row><div class="text-left"><span class="truncate">Project</span><button aria-haspopup="menu">…</button></div></div><div data-sidebar-section-id="sec_a"><div data-sidebar-rename-row><div class="text-left"><span class="truncate">Section</span><button aria-haspopup="menu">…</button></div></div><div data-sidebar-rename-row><a data-sidebar-thread-id="thr_a">Thread</a></div></div></div></body></html>`,{pretendToBeVisual:true});
+ const dom=new JSDOM(`<html><head></head><body><div data-sidebar-project-id="proj_a"><div data-sidebar-rename-row><div class="text-left"><span class="truncate">Project</span><button aria-haspopup="menu" aria-controls="heading-menu">…</button></div></div><div data-sidebar-section-id="sec_a"><div data-sidebar-rename-row><div class="text-left"><span class="truncate">Section</span><button aria-haspopup="menu" aria-controls="heading-menu">…</button></div></div><div data-sidebar-rename-row><a data-sidebar-thread-id="thr_a">Thread</a></div></div></div></body></html>`,{pretendToBeVisual:true});
  const doc=dom.window.document;
  return {dom,doc,dec:decorateHeaders(doc)};
 }
@@ -34,7 +34,7 @@ test('adds a single menu entry only after a heading trigger and removes it on un
  const {dom,doc,dec}=setup();
  const trigger=doc.querySelector('button')!;
  trigger.dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true}));
- const menu=doc.createElement('div');menu.role='menu';menu.dataset.state='open';menu.innerHTML='<button role="menuitem">Rename</button>';doc.body.append(menu);
+ const menu=doc.createElement('div');menu.id='heading-menu';menu.role='menu';menu.dataset.state='open';menu.innerHTML='<button role="menuitem">Rename</button>';doc.body.append(menu);
  await tick();assert.equal(menu.querySelectorAll('[data-section-style-menu]').length,1);
  let target:unknown;
  dom.window.addEventListener(editEvent,event=>{target=(event as CustomEvent).detail;});
@@ -60,7 +60,7 @@ test('project headings nested inside sections keep their own appearance',()=>{
 });
 test('heading menu entry is keyboard reachable and does not enter unrelated menus',async()=>{
  const {dom,doc,dec}=setup();
- const menu=doc.createElement('div');menu.role='menu';menu.dataset.state='open';menu.innerHTML='<button role="menuitem">Rename</button>';doc.body.append(menu);
+ const menu=doc.createElement('div');menu.id='heading-menu';menu.role='menu';menu.dataset.state='open';menu.innerHTML='<button role="menuitem">Rename</button>';doc.body.append(menu);
  await tick();assert.equal(menu.querySelector('[data-section-style-menu]'),null);
  doc.querySelector('button')!.dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true}));
  menu.append(doc.createElement('span'));await tick();
@@ -68,5 +68,25 @@ test('heading menu entry is keyboard reachable and does not enter unrelated menu
  host.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));
  const own=menu.querySelector('[data-section-style-menu]')!;assert.equal(doc.activeElement,own);
  own.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));assert.equal(doc.activeElement,host);
+ dec.dispose();dom.window.close();
+});
+test('does not decorate unrelated menus or portalled submenus after a heading click',async()=>{
+ const {dom,doc,dec}=setup();
+ doc.querySelector('button')!.dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true}));
+ const unrelated=doc.createElement('div');unrelated.role='menu';unrelated.dataset.state='open';unrelated.id='thread-menu';doc.body.append(unrelated);
+ await tick();assert.equal(unrelated.querySelector('[data-section-style-menu]'),null);
+ const root=doc.createElement('div');root.role='menu';root.dataset.state='open';root.id='heading-menu';doc.body.append(root);
+ await tick();assert.ok(root.querySelector('[data-section-style-menu]'));
+ const submenu=doc.createElement('div');submenu.role='menu';submenu.dataset.state='open';submenu.id='sort-menu';doc.body.append(submenu);
+ await tick();assert.equal(submenu.querySelector('[data-section-style-menu]'),null);
+ root.remove();await tick();assert.equal(submenu.querySelector('[data-section-style-menu]'),null);
+ dec.dispose();dom.window.close();
+});
+test('opening a heading menu by keyboard identifies the target',async()=>{
+ const {dom,doc,dec}=setup();
+ const trigger=doc.querySelector('button')!;
+ trigger.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+ const menu=doc.createElement('div');menu.id='heading-menu';menu.role='menu';menu.dataset.state='open';doc.body.append(menu);
+ await tick();assert.ok(menu.querySelector('[data-section-style-menu]'));
  dec.dispose();dom.window.close();
 });
