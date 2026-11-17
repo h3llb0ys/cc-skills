@@ -90,3 +90,38 @@ test('opening a heading menu by keyboard identifies the target',async()=>{
  await tick();assert.ok(menu.querySelector('[data-section-style-menu]'));
  dec.dispose();dom.window.close();
 });
+test('font-only overrides do not change host layout styles and reset independently',()=>{
+ const {dom,doc,dec}=setup();
+ const title=doc.querySelector<HTMLElement>('.truncate')!;
+ const row=title.closest('[data-sidebar-rename-row]')!;
+ row.setAttribute('style','height:28px;padding:0 8px');
+ dec.update({'project:proj_a':{color:null,icon:null,emoji:null,fontSize:18}});
+ assert.ok(title.classList.contains('bb-heading-appearance-font'));
+ assert.equal(title.style.getPropertyValue('--heading-appearance-font-size'),'18px');
+ assert.equal(row.getAttribute('style'),'height:28px;padding:0 8px');
+ dec.update({'project:proj_a':{color:'#ec4899',icon:'server',emoji:null,fontSize:null}});
+ assert.ok(!title.classList.contains('bb-heading-appearance-font'));
+ assert.equal(title.style.getPropertyValue('--heading-appearance-font-size'),'');
+ assert.ok(title.classList.contains('bb-heading-appearance-symbol'));
+ dec.dispose();assert.ok(!title.classList.contains('bb-heading-appearance'));dom.window.close();
+});
+test('conversation updates do not rescan the sidebar, but host style resets are restored',async()=>{
+ const {dom,doc,dec}=setup();
+ dec.update({'project:proj_a':{color:'#ec4899',icon:'server',emoji:null,fontSize:18}});
+ await tick();
+ const original=doc.querySelectorAll;
+ let scans=0;
+ doc.querySelectorAll=new Proxy(original,{apply(fn,self,args){scans++;return Reflect.apply(fn,self,args);}});
+ const conversation=doc.createElement('main');doc.body.append(conversation);
+ conversation.innerHTML='<p class="message">Some conversation text</p>';
+ await tick();
+ conversation.firstElementChild!.className='message streaming';
+ conversation.firstElementChild!.append(' more text');
+ await tick();assert.equal(scans,0);
+ const title=doc.querySelector<HTMLElement>('.bb-heading-appearance')!;
+ title.removeAttribute('style');await tick();
+ assert.equal(title.style.getPropertyValue('--heading-appearance-font-size'),'18px');
+ assert.ok(scans>0);
+ doc.querySelectorAll=original;
+ dec.dispose();dom.window.close();
+});

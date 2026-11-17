@@ -1,15 +1,19 @@
 # Section Style
 
 Small appearance controls for BB's existing **Thread list**. Give a section or
-project heading an outline icon and a title color. No replacement sidebar,
+project heading an outline icon, a title color and an optional font size. No replacement sidebar,
 new grouping, sorting, folders, or automatic thread moves.
 
 ## Use
 
-Open a heading's actions menu → **Оформление…**. Pick one of 16 outline icons, then choose a preset or custom color. **Сохранить** applies it;
+Open a heading's actions menu → **Оформление…**. Pick one of 80 outline icons, search by Russian or English name, and choose a preset or custom color. **Сохранить** applies it;
 **Отмена** leaves it unchanged; **Сбросить** removes this heading's override.
 The same editor is available under Settings → Plugins → Section Style.
 The editor loads saved choices before allowing changes; a failed load offers Retry.
+
+The font-size slider sets each heading to 10–18 px with a live dialog preview.
+**Размер по умолчанию** restores BB’s font size without resetting the icon or color.
+Existing saved choices keep BB’s original font size until you adjust the slider.
 
 Colors affect only the label and its icon. An icon reserves 20 px inside the label;
 row heights, outer padding, vertical gaps, controls, and thread indentation stay

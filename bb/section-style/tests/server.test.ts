@@ -69,3 +69,14 @@ test('failed storage writes preserve old values and the queue recovers',async()=
   assert.deepEqual(await harness.behavior.callRpc('list',null),{});
  } finally {await harness.lifecycle.dispose();}
 });
+test('font sizes are bounded, saved with new icons, and old settings still load',async()=>{
+ const {bb,harness}=createFakePluginHost({pluginId:'section-style'});
+ try {
+  await bb.storage.kv.set('appearances',{'section:sec_a':appearance});
+  plugin(bb);
+  assert.deepEqual(await harness.behavior.callRpc('list',null),{'section:sec_a':appearance});
+  for(const fontSize of [9,19,12.5,'16']) await assert.rejects(()=>harness.behavior.callRpc('save',{target:'section:sec_a',appearance:{...appearance,fontSize}}));
+  await harness.behavior.callRpc('save',{target:'section:sec_a',appearance:{...appearance,icon:'server',fontSize:18}});
+  assert.deepEqual(await harness.behavior.callRpc('list',null),{'section:sec_a':{...appearance,icon:'server',fontSize:18}});
+ } finally {await harness.lifecycle.dispose();}
+});

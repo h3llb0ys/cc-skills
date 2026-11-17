@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "Section Style",
-    "description": "Icons and title colors for the existing BB sidebar, without replacing its layout.",
+    "description": "Icons, colors and font sizes for the existing BB sidebar, without replacing its layout.",
     "branding": {
       "icon": "Palette"
     },
