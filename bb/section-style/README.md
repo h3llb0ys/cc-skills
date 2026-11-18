@@ -36,6 +36,7 @@ appearance; saved choices are retained until removal.
 ## Development and boundaries
 
 ```sh
+npm ci --prefix ../shared-ui
 npm run typecheck
 npm test
 bb plugin build

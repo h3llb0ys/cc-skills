@@ -1,8 +1,9 @@
+import { ColorPalette } from '../shared-ui/color-palette';
 import { useEffect, useRef, useState } from 'react';
 import { useRpc } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './server';
 import { getHeadingDefaultFontSize } from './lib/decorate';
-import { emptyAppearance, appearanceSchema, icons, iconLabels, fontSizeMin, fontSizeMax, fontSizeDefault, palette, type Appearance, type IconName, type Target } from './lib/appearance';
+import { emptyAppearance, appearanceSchema, icons, iconLabels, fontSizeMin, fontSizeMax, fontSizeDefault, type Appearance, type IconName, type Target } from './lib/appearance';
 
 export function Glyph({name}:{name:IconName}) {
  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={icons[name]}/></svg>;
@@ -37,11 +38,7 @@ function Editor({target, initial, onClose, onSaved}:{target:Target; initial:Appe
      <span className="section-style-preview-title" style={{fontSize:value.fontSize??defaultSize}}>{target.name}</span>
     </div>
     <p className="section-style-label">Цвет заголовка и значка</p>
-    <div className="section-style-colors">
-     <button type="button" className="section-style-default" aria-pressed={!value.color} onClick={()=>setValue({...value,color:null})}>По умолчанию</button>
-     {palette.map(color=><button key={color} type="button" className="section-style-swatch" style={{background:color}} aria-label={color} aria-pressed={value.color===color} onClick={()=>setValue({...value,color})}/>)}
-     <label className="section-style-custom" title="Произвольный цвет"><input type="color" aria-label="Произвольный цвет" value={value.color??'#808080'} onChange={event=>setValue({...value,color:event.target.value})}/>Свой</label>
-    </div>
+    <ColorPalette color={value.color} onChange={color => setValue(current => ({ ...current, color }))} />
     <div className="section-style-font">
      <label htmlFor="section-style-font-size">Размер шрифта</label>
      <output htmlFor="section-style-font-size">{value.fontSize==null?'По умолчанию':`${value.fontSize} px`}</output>

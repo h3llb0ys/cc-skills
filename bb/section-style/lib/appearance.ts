@@ -169,7 +169,6 @@ export const iconLabels: Record<IconName,string> = {
 export const fontSizeMin = 10;
 export const fontSizeMax = 18;
 export const fontSizeDefault = 12;
-export const palette = ['#808080', '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#8b5cf6', '#ec4899'];
 export const appearanceSchema = z.object({
  fontSize: z.number().int().min(fontSizeMin).max(fontSizeMax).nullable().optional(),
  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(),

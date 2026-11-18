@@ -52,7 +52,7 @@
     "vaul": "^1.1.2"
   },
   "scripts": {
-    "test": "tsx --test tests/*.test.ts",
+    "test": "tsx --import ../shared-ui/ignore-css.mjs --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "build": "bb plugin build"
   }

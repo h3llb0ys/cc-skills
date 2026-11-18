@@ -1,0 +1,8 @@
+{
+  "name": "cc-skills-bb-shared-ui",
+  "private": true,
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "react": "19.3.1"
+  }
+}

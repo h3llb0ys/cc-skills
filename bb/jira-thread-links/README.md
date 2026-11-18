@@ -32,6 +32,7 @@ BB SDK 0.6.132 пока не предоставляет слот для мета
 ```sh
 cd ~/extra/cc-skills/bb/jira-thread-links
 npm install --include=dev
+npm ci --prefix ../shared-ui
 npm test
 npm run typecheck
 bb plugin build

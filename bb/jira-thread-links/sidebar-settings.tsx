@@ -1,7 +1,8 @@
+import { ColorPalette } from '../shared-ui/color-palette';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRealtime, useRealtimeConnectionState, useRpc } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './server';
-import { palette, type SidebarAppearance } from './lib/sidebar-appearance';
+import type { SidebarAppearance } from './lib/sidebar-appearance';
 
 export function useSidebarAppearance() {
   const rpc = useRpc<typeof rpcContract>();
@@ -50,13 +51,9 @@ function ColorControls({initial,onSaved}:{initial:SidebarAppearance;onSaved:(sav
     }
   }
   return <div aria-busy={pending}>
-      <fieldset disabled={pending} style={{border:0,padding:0,margin:0,display:'flex',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <fieldset disabled={pending} style={{border:0,padding:0,margin:0,minWidth:0}}>
         <legend style={{position:'absolute',width:1,height:1,overflow:'hidden'}}>Цвет Jira-номеров</legend>
-        <button type="button" aria-pressed={color===null} onClick={()=>void save(null)} style={{padding:'6px 10px',border:'1px solid var(--border)',borderRadius:7,fontSize:12}}>По умолчанию</button>
-        {palette.map(swatch=><button key={swatch} type="button" aria-label={swatch} aria-pressed={color?.toLowerCase()===swatch} onClick={()=>void save(swatch)} style={{width:26,height:26,background:swatch,borderRadius:5,outline:color?.toLowerCase()===swatch?'2px solid var(--foreground)':undefined,outlineOffset:3}} />)}
-        <label style={{display:'inline-flex',alignItems:'center',gap:6,padding:'4px 7px',border:'1px solid var(--border)',borderRadius:7,fontSize:12,cursor:'pointer'}}>
-          <input type="color" aria-label="Произвольный цвет" value={color??'#808080'} onChange={event=>void save(event.target.value)} style={{width:20,height:20,padding:0,border:0,background:'transparent',cursor:'pointer'}}/>Свой
-        </label>
+        <ColorPalette color={color} onChange={next => void save(next)} />
       </fieldset>
     {error&&<p role="alert" style={{color:'var(--destructive)',marginTop:12}}>{error}</p>}
   </div>;

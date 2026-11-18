@@ -1,0 +1,16 @@
+.cc-color-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cc-color-palette .cc-color-palette-default, .cc-color-palette .cc-color-palette-custom {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cc-color-palette .cc-color-palette-default { padding: 6px 10px; }
+.cc-color-palette .cc-color-palette-default[aria-pressed="true"] { background: var(--muted); }
+.cc-color-palette .cc-color-palette-swatch { width: 26px; height: 26px; padding: 0; border-radius: 5px; cursor: pointer; }
+.cc-color-palette .cc-color-palette-swatch[aria-pressed="true"] { outline: 2px solid var(--foreground); outline-offset: 3px; }
+.cc-color-palette .cc-color-palette-swatch:focus-visible,
+.cc-color-palette .cc-color-palette-default:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.cc-color-palette .cc-color-palette-custom { display: inline-flex; align-items: center; gap: 6px; padding: 4px 7px; }
+.cc-color-palette-custom:focus-within { outline: 2px solid var(--ring); outline-offset: 3px; }
+.cc-color-palette-custom input { width: 20px; height: 20px; padding: 0; border: 0; background: transparent; cursor: pointer; }

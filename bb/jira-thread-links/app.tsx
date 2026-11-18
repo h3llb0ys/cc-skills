@@ -1,3 +1,4 @@
+import '../shared-ui/color-palette.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { definePluginApp, experimental_useSidebarThreads, useRealtime, useRpc, useRealtimeConnectionState } from '@get-bb/plugin-sdk/app';
 import { editEvent, editThreadTasks, TaskCardSection, TaskInfoSection, taskSectionTitle } from './thread-tasks';

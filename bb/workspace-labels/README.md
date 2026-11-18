@@ -97,4 +97,4 @@ Jira-задачи не копируются в строку окружения: 
 
 ## Проверка
 
-`npm run typecheck`, `npm test`, `npm run build`.
+Из каталога плагина: `npm ci --prefix ../shared-ui`, затем `npm run typecheck`, `npm test`, `npm run build`.
