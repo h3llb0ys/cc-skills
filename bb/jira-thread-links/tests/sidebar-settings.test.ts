@@ -6,72 +6,71 @@ Object.assign(globalThis,{window:dom.window,document:dom.window.document,HTMLEle
 Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configurable:true});
 dom.window.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};
 dom.window.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
-test('settings expose the palette inline, support custom color and save/reset without a dialog',async()=>{
+
+async function mount(rpc: Record<string, (...args:any[])=>any>) {
  const {loadPluginApp,renderSlot}=await import('@get-bb/plugin-sdk/testing/app');
- const {fireEvent,waitFor}=await import('@testing-library/react');
  const app=await loadPluginApp(()=>import('../app'));
- const saved:any[]=[];let stored={color:null as string|null};
  const section=app.settingsSections.find(s=>s.id==='sidebar-color');assert.ok(section);
- const slot=renderSlot(section,{}, {rpc:{sidebarAppearance:()=>stored,saveSidebarAppearance:(input:any)=>{saved.push(input);stored=input;return input;}}});
+ const slot=renderSlot(section,{}, {rpc});
+ await slot.findByRole('button',{name:'#8b5cf6'});
+ return slot;
+}
+
+test('palette, custom color and reset save immediately without action buttons',async()=>{
+ const {fireEvent,waitFor}=await import('@testing-library/react');
+ const saved:unknown[]=[];
+ const slot=await mount({sidebarAppearance:()=>({color:null}),saveSidebarAppearance:(input)=>{saved.push(input);return input;}});
  try {
-  const purple=await slot.findByRole('button',{name:'#8b5cf6'});
+  assert.equal(Boolean(slot.queryByRole('button',{name:'Сохранить'})),false);
+  assert.equal(Boolean(slot.queryByRole('button',{name:'Отменить изменения'})),false);
   assert.equal(Boolean(slot.queryByRole('dialog')),false);
-  assert.equal(Boolean(slot.queryByRole('button',{name:'Цвет задач…'})),false);
-  fireEvent.click(purple);
-  fireEvent.click(slot.getByRole('button',{name:'Отменить изменения'}));
-  assert.equal(saved.length,0);
-  assert.equal(slot.getByRole('button',{name:'По умолчанию'}).getAttribute('aria-pressed'),'true');
+  fireEvent.click(slot.getByRole('button',{name:'#8b5cf6'}));
+  await waitFor(()=>assert.equal(slot.container.querySelector('fieldset')!.disabled,false));
+  assert.deepEqual(saved,[{color:'#8b5cf6'}]);
   fireEvent.change(slot.getByLabelText('Произвольный цвет'),{target:{value:'#123456'}});
-  fireEvent.click(slot.getByRole('button',{name:'Сохранить'}));
-  await waitFor(()=>assert.equal(saved.length,1));
-  assert.deepEqual(saved[0],{color:'#123456'});
-  await waitFor(()=>assert.equal((slot.getByRole('button',{name:'Сохранить'}) as HTMLButtonElement).disabled,true));
+  await waitFor(()=>assert.equal(slot.container.querySelector('fieldset')!.disabled,false));
+  assert.deepEqual(saved[1],{color:'#123456'});
   fireEvent.click(slot.getByRole('button',{name:'По умолчанию'}));
-  fireEvent.click(slot.getByRole('button',{name:'Сохранить'}));
-  await waitFor(()=>assert.equal(saved.length,2));
-  assert.deepEqual(saved[1],{color:null});
+  await waitFor(()=>assert.equal(slot.container.querySelector('fieldset')!.disabled,false));
+  assert.deepEqual(saved[2],{color:null});
+  fireEvent.click(slot.getByRole('button',{name:'По умолчанию'}));
+  assert.equal(saved.length,3);
  }finally{slot.lifecycle.unmount();}
 });
 
-test('remote updates preserve a draft and cancel restores the latest saved color',async()=>{
- const {loadPluginApp,renderSlot}=await import('@get-bb/plugin-sdk/testing/app');
+test('failed save restores the latest remote color and allows retry',async()=>{
  const {fireEvent,waitFor,act}=await import('@testing-library/react');
- const app=await loadPluginApp(()=>import('../app'));
- let stored={color:null as string|null};
- const section=app.settingsSections.find(s=>s.id==='sidebar-color');assert.ok(section);
- const slot=renderSlot(section,{}, {rpc:{sidebarAppearance:()=>stored}});
+ let stored={color:null as string|null};let rejectSave:(error:Error)=>void=()=>{};
+ let fail=true;
+ const slot=await mount({sidebarAppearance:()=>stored,saveSidebarAppearance:(input)=>fail?new Promise((_,reject)=>{rejectSave=reject;}):input});
  try {
-  fireEvent.click(await slot.findByRole('button',{name:'#8b5cf6'}));
+  fireEvent.click(slot.getByRole('button',{name:'#8b5cf6'}));
+  assert.equal(slot.container.querySelector('fieldset')!.disabled,true);
+  assert.equal(slot.getByRole('button',{name:'#8b5cf6'}).getAttribute('aria-pressed'),'true');
   stored={color:'#22c55e'};
   await act(async()=>{slot.behavior.emitRealtime('sidebar-appearance-changed',{});});
-  assert.equal(slot.getByRole('button',{name:'#8b5cf6'}).getAttribute('aria-pressed'),'true');
-  fireEvent.click(slot.getByRole('button',{name:'Отменить изменения'}));
+  await act(async()=>{rejectSave(new Error('offline'));});
   assert.equal(slot.getByRole('button',{name:'#22c55e'}).getAttribute('aria-pressed'),'true');
-  stored={color:'#ef4444'};
-  await act(async()=>{slot.behavior.emitRealtime('sidebar-appearance-changed',{});});
-  await waitFor(()=>assert.equal(slot.getByRole('button',{name:'#ef4444'}).getAttribute('aria-pressed'),'true'));
+  assert.match(slot.getByRole('alert').textContent!,/offline/);
+  fail=false;
+  fireEvent.click(slot.getByRole('button',{name:'#8b5cf6'}));
+  await waitFor(()=>assert.equal(slot.container.querySelector('fieldset')!.disabled,false));
+  assert.equal(Boolean(slot.queryByRole('alert')),false);
+  assert.equal(slot.getByRole('button',{name:'#8b5cf6'}).getAttribute('aria-pressed'),'true');
  }finally{slot.lifecycle.unmount();}
 });
 
-test('successful save uses its response and ignores an older pending read',async()=>{
- const {loadPluginApp,renderSlot}=await import('@get-bb/plugin-sdk/testing/app');
- const {fireEvent,waitFor,act}=await import('@testing-library/react');
- const app=await loadPluginApp(()=>import('../app'));
- let reads=0;let finishRead:((value:{color:null})=>void)|undefined;
- const section=app.settingsSections.find(s=>s.id==='sidebar-color');assert.ok(section);
- const slot=renderSlot(section,{}, {rpc:{
-  sidebarAppearance:()=>{reads++;if(reads===1)return {color:null};if(reads===2)return new Promise(resolve=>{finishRead=resolve;});throw new Error('Read unavailable');},
-  saveSidebarAppearance:(input:unknown)=>input,
- }});
+test('successful immediate save ignores an older read and follows later remote updates',async()=>{
+ const {fireEvent,act}=await import('@testing-library/react');
+ let reads=0;let finishRead:(value:{color:null})=>void=()=>{};
+ const slot=await mount({sidebarAppearance:()=>{reads++;if(reads===1)return {color:null};if(reads===2)return new Promise(resolve=>{finishRead=resolve;});return {color:'#ef4444'};},saveSidebarAppearance:input=>input});
  try {
-  fireEvent.click(await slot.findByRole('button',{name:'#8b5cf6'}));
   await act(async()=>{slot.behavior.emitRealtime('sidebar-appearance-changed',{});});
-  fireEvent.click(slot.getByRole('button',{name:'Сохранить'}));
-  await waitFor(()=>assert.equal((slot.getByRole('button',{name:'Сохранить'}) as HTMLButtonElement).disabled,true));
-  await act(async()=>{finishRead!({color:null});});
+  await act(async()=>{fireEvent.click(slot.getByRole('button',{name:'#8b5cf6'}));});
+  await act(async()=>{finishRead({color:null});});
   assert.equal(reads,2);
   assert.equal(slot.getByRole('button',{name:'#8b5cf6'}).getAttribute('aria-pressed'),'true');
-  assert.equal((slot.getByRole('button',{name:'Отменить изменения'}) as HTMLButtonElement).disabled,true);
-  assert.equal(Boolean(slot.queryByRole('alert')),false);
+  await act(async()=>{slot.behavior.emitRealtime('sidebar-appearance-changed',{});});
+  assert.equal(slot.getByRole('button',{name:'#ef4444'}).getAttribute('aria-pressed'),'true');
  }finally{slot.lifecycle.unmount();}
 });
