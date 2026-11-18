@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
 
 import { STAGES, SUBSTEPS, progress, type Cycle, type Stage } from "./model";
@@ -32,9 +32,48 @@ export function caption(cycle: Cycle): string {
   return `${done}/${total} · этап ${current}: ${STAGES[current]}`;
 }
 
-function ProgressBar({ cycle }: { cycle: Cycle }) {
+const COMPACT_KEY = "mr-cycle.compact";
+
+// Storage can be unavailable (privacy settings); the view then falls back to full and forgets the choice.
+function readCompact(): boolean {
+  try {
+    return localStorage.getItem(COMPACT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeCompact(compact: boolean) {
+  try {
+    localStorage.setItem(COMPACT_KEY, compact ? "1" : "0");
+  } catch {
+    // The choice still applies until the component remounts.
+  }
+}
+
+function useCompactView(): [boolean, () => void] {
+  const [compact, setCompact] = useState(readCompact);
+  const toggle = () => {
+    writeCompact(!compact);
+    setCompact(!compact);
+  };
+
+  return [compact, toggle];
+}
+
+function summaryLine(cycle: Cycle): string {
+  return `${cycle.iteration > 1 ? `итерация ${cycle.iteration} · ` : ""}${caption(cycle)}`;
+}
+
+function percentGradient(cycle: Cycle): CSSProperties {
+  const { current } = progress(cycle);
+
+  return { backgroundImage: `linear-gradient(90deg, ${stageColor(0)}, ${stageColor(current ?? STAGES.length - 1)})` };
+}
+
+function ProgressBar({ cycle, thin = false }: { cycle: Cycle; thin?: boolean }) {
   return (
-    <div className="flex h-2.5 gap-[3px]" role="presentation">
+    <div className={`flex ${thin ? "h-1.5 gap-0.5" : "h-2.5 gap-[3px]"}`} role="presentation">
       {cycle.stages.map((stage, i) => (
         <span
           key={i}
@@ -89,13 +128,13 @@ function StageRow({ stage, index }: { stage: Stage; index: number }) {
 
   return (
     <li
-      className={`grid grid-cols-[16px_16px_1fr_auto] items-center gap-x-2 gap-y-0.5 rounded-md px-1.5 py-1 text-[13px] ${
+      className={`grid grid-cols-[16px_16px_auto_minmax(0,1fr)] items-center gap-x-2 gap-y-0.5 rounded-md px-1.5 py-1 text-[13px] ${
         stage.status === "running" ? "bg-muted/60" : ""
       }`}
     >
       <span className="font-mono text-[11px] text-muted-foreground">{index}</span>
       <StageBox stage={stage} index={index} />
-      <span className={`min-w-0 truncate ${muted ? "text-muted-foreground" : ""}`}>
+      <span className={`max-w-[11.5rem] truncate whitespace-nowrap ${muted ? "text-muted-foreground" : ""}`}>
         {STAGES[index]}
         {stage.runs > 1 ? (
           <span className="ml-1.5 rounded bg-muted px-1 text-[10px] text-muted-foreground" title={`повторов: ${stage.runs - 1}`}>
@@ -103,7 +142,7 @@ function StageRow({ stage, index }: { stage: Stage; index: number }) {
           </span>
         ) : null}
       </span>
-      <span className="max-w-40 truncate text-right text-xs text-muted-foreground" title={stage.note}>
+      <span className="min-w-0 truncate text-right text-xs text-muted-foreground" title={stage.note}>
         {stage.note}
       </span>
       <Substeps stage={stage} index={index} />
@@ -129,27 +168,68 @@ function Checks({ cycle }: { cycle: Cycle }) {
   );
 }
 
-export function CycleView({ cycle }: { cycle: Cycle }) {
-  const { current } = progress(cycle);
-  const gradient: CSSProperties = {
-    backgroundImage: `linear-gradient(90deg, ${stageColor(0)}, ${stageColor(current ?? STAGES.length - 1)})`,
-  };
+function CheckDots({ cycle }: { cycle: Cycle }) {
+  const checks = Object.entries(cycle.checks);
+  if (checks.length === 0) return null;
 
   return (
-    <div className="text-foreground">
-      {cycle.title === undefined ? null : (
-        <div className="truncate font-mono text-[11px] text-muted-foreground" title={cycle.title}>
-          {cycle.title}
-        </div>
-      )}
-      <div className="mb-2 flex items-baseline gap-2.5">
-        <span className="bg-clip-text text-3xl font-bold tracking-tight text-transparent" style={gradient}>
+    <span className="flex shrink-0 gap-1" title={checks.map(([name, status]) => `${name} ${status}`).join(" · ")}>
+      {checks.map(([name, status]) => (
+        <span
+          key={name}
+          className="size-1.5 rounded-full"
+          style={{ background: status === "ok" ? "var(--success)" : "var(--destructive)" }}
+        />
+      ))}
+    </span>
+  );
+}
+
+function Header({ cycle, compact, onToggle }: { cycle: Cycle; compact: boolean; onToggle: () => void }) {
+  return (
+    <div className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+      <span className="min-w-0 flex-1 truncate" title={cycle.title}>
+        {cycle.title}
+      </span>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!compact}
+        aria-label={compact ? "Развернуть MR cycle" : "Свернуть MR cycle"}
+        title={compact ? "Развернуть" : "Свернуть"}
+        className="grid size-5 shrink-0 place-items-center rounded hover:bg-muted hover:text-foreground"
+      >
+        {compact ? "▸" : "▾"}
+      </button>
+    </div>
+  );
+}
+
+function CompactBody({ cycle }: { cycle: Cycle }) {
+  return (
+    <>
+      <div className="mt-0.5 flex items-center gap-2">
+        <span className="bg-clip-text text-lg font-bold tracking-tight text-transparent" style={percentGradient(cycle)}>
           {percent(cycle)}%
         </span>
-        <span className="min-w-0 truncate text-xs text-muted-foreground">
-          {cycle.iteration > 1 ? `итерация ${cycle.iteration} · ` : ""}
-          {caption(cycle)}
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{summaryLine(cycle)}</span>
+        <CheckDots cycle={cycle} />
+      </div>
+      <div className="mt-1.5">
+        <ProgressBar cycle={cycle} thin />
+      </div>
+    </>
+  );
+}
+
+function FullBody({ cycle }: { cycle: Cycle }) {
+  return (
+    <>
+      <div className="mb-2 flex items-baseline gap-2.5">
+        <span className="bg-clip-text text-3xl font-bold tracking-tight text-transparent" style={percentGradient(cycle)}>
+          {percent(cycle)}%
         </span>
+        <span className="min-w-0 truncate text-xs text-muted-foreground">{summaryLine(cycle)}</span>
       </div>
       <ProgressBar cycle={cycle} />
       <ol className="mt-3">
@@ -158,6 +238,17 @@ export function CycleView({ cycle }: { cycle: Cycle }) {
         ))}
       </ol>
       <Checks cycle={cycle} />
+    </>
+  );
+}
+
+export function CycleView({ cycle }: { cycle: Cycle }) {
+  const [compact, toggle] = useCompactView();
+
+  return (
+    <div className="text-foreground">
+      <Header cycle={cycle} compact={compact} onToggle={toggle} />
+      {compact ? <CompactBody cycle={cycle} /> : <FullBody cycle={cycle} />}
     </div>
   );
 }
