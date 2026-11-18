@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useSyncExternalStore, type CSSProperties } from "react";
 import { experimental_Icon as Icon } from "@get-bb/plugin-sdk/app";
 
 import { STAGES, SUBSTEPS, progress, type Cycle, type Stage } from "./model";
@@ -34,7 +34,33 @@ export function caption(cycle: Cycle): string {
 
 const COMPACT_KEY = "mr-cycle.compact";
 
-// Storage can be unavailable (privacy settings); the view then falls back to full and forgets the choice.
+// One choice for every mounted widget: split panes and other windows switch together.
+const compactView = {
+  value: readCompact(),
+  listeners: new Set<() => void>(),
+  subscribe(listener: () => void) {
+    compactView.listeners.add(listener);
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      compactView.listeners.delete(listener);
+      if (compactView.listeners.size === 0) window.removeEventListener("storage", onStorage);
+    };
+  },
+  set(value: boolean) {
+    compactView.value = value;
+    writeCompact(value);
+    compactView.listeners.forEach((listener) => listener());
+  },
+};
+
+function onStorage(event: StorageEvent) {
+  if (event.key !== COMPACT_KEY) return;
+  compactView.value = event.newValue === "1";
+  compactView.listeners.forEach((listener) => listener());
+}
+
+// Storage can be unavailable (privacy settings): the choice then lives until the page reloads.
 function readCompact(): boolean {
   try {
     return localStorage.getItem(COMPACT_KEY) === "1";
@@ -47,18 +73,14 @@ function writeCompact(compact: boolean) {
   try {
     localStorage.setItem(COMPACT_KEY, compact ? "1" : "0");
   } catch {
-    // The choice still applies until the component remounts.
+    // See readCompact.
   }
 }
 
 function useCompactView(): [boolean, () => void] {
-  const [compact, setCompact] = useState(readCompact);
-  const toggle = () => {
-    writeCompact(!compact);
-    setCompact(!compact);
-  };
+  const compact = useSyncExternalStore(compactView.subscribe, () => compactView.value);
 
-  return [compact, toggle];
+  return [compact, () => compactView.set(!compact)];
 }
 
 function summaryLine(cycle: Cycle): string {
@@ -171,9 +193,10 @@ function Checks({ cycle }: { cycle: Cycle }) {
 function CheckDots({ cycle }: { cycle: Cycle }) {
   const checks = Object.entries(cycle.checks);
   if (checks.length === 0) return null;
+  const label = checks.map(([name, status]) => `${name} ${status}`).join(" · ");
 
   return (
-    <span className="flex shrink-0 gap-1" title={checks.map(([name, status]) => `${name} ${status}`).join(" · ")}>
+    <span className="flex shrink-0 gap-1" role="img" aria-label={label} title={label}>
       {checks.map(([name, status]) => (
         <span
           key={name}
@@ -205,13 +228,19 @@ function Header({ cycle, compact, onToggle }: { cycle: Cycle; compact: boolean; 
   );
 }
 
+function Percent({ cycle, className }: { cycle: Cycle; className: string }) {
+  return (
+    <span className={`bg-clip-text font-bold tracking-tight text-transparent ${className}`} style={percentGradient(cycle)}>
+      {percent(cycle)}%
+    </span>
+  );
+}
+
 function CompactBody({ cycle }: { cycle: Cycle }) {
   return (
     <>
       <div className="mt-0.5 flex items-center gap-2">
-        <span className="bg-clip-text text-lg font-bold tracking-tight text-transparent" style={percentGradient(cycle)}>
-          {percent(cycle)}%
-        </span>
+        <Percent cycle={cycle} className="text-lg" />
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{summaryLine(cycle)}</span>
         <CheckDots cycle={cycle} />
       </div>
@@ -226,9 +255,7 @@ function FullBody({ cycle }: { cycle: Cycle }) {
   return (
     <>
       <div className="mb-2 flex items-baseline gap-2.5">
-        <span className="bg-clip-text text-3xl font-bold tracking-tight text-transparent" style={percentGradient(cycle)}>
-          {percent(cycle)}%
-        </span>
+        <Percent cycle={cycle} className="text-3xl" />
         <span className="min-w-0 truncate text-xs text-muted-foreground">{summaryLine(cycle)}</span>
       </div>
       <ProgressBar cycle={cycle} />
