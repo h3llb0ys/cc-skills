@@ -48,9 +48,15 @@ export function remaining(
 }
 export function selectedWindows(row: Row, options: Options) {
   const selection = options.providers[row.id]?.windows;
-  return row.windows.filter(
+  const windows = row.windows.filter(
     (w) => selection == null || selection.includes(w.label),
   );
+  if (row.id === "claude-code") {
+    const rank = (label: string) =>
+      label === "Weekly limit" ? 0 : label === "Current session" ? 1 : 2;
+    windows.sort((a, b) => rank(a.label) - rank(b.label));
+  }
+  return windows;
 }
 export function visibleRows(rows: Row[], options: Options) {
   return rows.filter(

@@ -62,3 +62,31 @@ test("rejects dangerous refresh intervals", () => {
   for (const refreshSeconds of [0, 29, 86401, NaN, Infinity])
     assert.equal(optionsSchema.safeParse({ refreshSeconds }).success, false);
 });
+
+test("Claude shows weekly outside session without changing source or other providers", () => {
+  const windows = [
+    { label: "Current session", usedPercent: 20, resetsAt: null },
+    { label: "Fable", usedPercent: 10, resetsAt: null },
+    { label: "Weekly limit", usedPercent: 40, resetsAt: null },
+  ];
+  const claude = { ...row, id: "claude-code", windows };
+  const options = optionsSchema.parse({});
+  assert.deepEqual(
+    selectedWindows(claude, options).map((w) => w.label),
+    ["Weekly limit", "Current session", "Fable"],
+  );
+  assert.deepEqual(
+    selectedWindows({ ...claude, id: "codex" }, options),
+    windows,
+  );
+  const filtered = optionsSchema.parse({
+    providers: {
+      "claude-code": { enabled: true, windows: ["Current session"] },
+    },
+  });
+  assert.deepEqual(
+    selectedWindows(claude, filtered).map((w) => w.label),
+    ["Current session"],
+  );
+  assert.equal(windows[0].label, "Current session");
+});
