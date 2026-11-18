@@ -89,3 +89,19 @@ test('renders only owned metadata, escapes branch and leaves task links alone ac
   assert.equal(metadata.querySelector('img'), null);
   assert.match(metadata.textContent!, /<img/);
 });
+
+test('applies separate colors to workspace metadata and its settings preview', () => {
+  const colors = { worktree: '#8b5cf6', branch: '#22c55e' };
+  const row = new JSDOM(renderToStaticMarkup(
+    <WorkspaceMetadata environment={environment} status={status} layout="details" colors={colors}/>,
+  ));
+  const metadata = row.window.document.querySelector<HTMLElement>('.workspace-labels')!;
+  assert.equal(metadata.style.getPropertyValue('--workspace-worktree-color'), colors.worktree);
+  assert.equal(metadata.style.getPropertyValue('--workspace-branch-color'), colors.branch);
+  const preview = new JSDOM(renderToStaticMarkup(<LayoutPreview layout="details" autoInline colors={colors}/>));
+  const sample = preview.window.document.querySelector<HTMLElement>('.workspace-preview')!;
+  assert.equal(sample.style.getPropertyValue('--workspace-worktree-color'), colors.worktree);
+  assert.equal(sample.style.getPropertyValue('--workspace-branch-color'), colors.branch);
+  row.window.close();
+  preview.window.close();
+});

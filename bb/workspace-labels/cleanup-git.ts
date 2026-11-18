@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, open, readdir, realpath, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { experimental_killProcessesWithCwdUnder } from '@get-bb/plugin-sdk/host';
@@ -50,10 +50,74 @@ async function resolveBase(context: string[], base: string, signal?: AbortSignal
   throw new Error(`Локальная копия целевой ветки ${base} недоступна.`);
 }
 
+async function worktreeLocation(target: string, signal?: AbortSignal) {
+  const result = await git(['-C', target], ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir'], signal);
+  const [root, gitDir, commonDir] = result.trimEnd().split('\n');
+  if (!root || !gitDir || !commonDir || gitDir === commonDir) {
+    throw new Error('Очистка доступна для отдельного Git worktree.');
+  }
+  const path = await realpath(root);
+  if (await realpath(target) !== path) throw new Error('Путь Git worktree изменился.');
+  return { root, path, gitDir, commonDir };
+}
+
+async function worktreeId(gitDir: string) {
+  const directory = await lstat(gitDir, { bigint: true });
+  return `${directory.dev}:${directory.ino}:${directory.birthtimeNs}`;
+}
+
+async function originDefaultBranch(context: string[], signal?: AbortSignal) {
+  const head = await git(context, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], signal).catch(error => {
+    if (!signal?.aborted && (error as { code?: unknown }).code === 1) return '';
+    throw error;
+  });
+  return /^refs\/remotes\/origin\/(.+)$/.exec(head.trim())?.[1];
+}
+
+export async function identifyWorktree(input: { repo: string; path: string; baseBranch: string; expectedBranch?: string }, signal?: AbortSignal) {
+  if (!isAbsolute(input.repo) || !isAbsolute(input.path)) throw new Error('Укажите абсолютные пути репозитория и worktree.');
+  const source = ['-C', input.repo];
+  const [location, sourceGitDir, ref] = await Promise.all([
+    worktreeLocation(input.path, signal),
+    git(source, ['rev-parse', '--path-format=absolute', '--git-common-dir'], signal),
+    git(['-C', input.path], ['symbolic-ref', 'HEAD'], signal),
+  ]);
+  const commonDir = await realpath(location.commonDir);
+  if (commonDir !== await realpath(sourceGitDir.trimEnd())) {
+    throw new Error('Worktree принадлежит другому репозиторию.');
+  }
+  const branch = ref.trim().slice('refs/heads/'.length);
+  if (input.expectedBranch !== undefined && input.expectedBranch !== branch) {
+    throw new Error(`Ветка worktree изменилась: ожидалась ${input.expectedBranch}, сейчас ${branch}.`);
+  }
+  const remoteDefault = await originDefaultBranch(source, signal);
+  const defaultBranch = remoteDefault ??
+    (await resolveBase(source, 'main', signal).catch(error => {
+      if (signal?.aborted) throw error;
+      return resolveBase(source, 'master', signal);
+    })).replace(/^refs\/(?:heads|remotes\/origin)\//, '');
+  if (branch === 'main' || branch === defaultBranch || (!remoteDefault && branch === 'master')) {
+    throw new Error(`Ветка ${branch} защищена.`);
+  }
+  let baseRef = (await git(source, [
+    'rev-parse', '--symbolic-full-name', '--verify', '--end-of-options', input.baseBranch,
+  ], signal)).trim();
+  if (!/^refs\/(heads|remotes)\//.test(baseRef)) {
+    await git(source, ['rev-parse', '--verify', '--end-of-options', `${input.baseBranch}^{commit}`], signal);
+    baseRef = await resolveBase(source, defaultBranch, signal);
+  }
+  return {
+    path: location.path,
+    gitDir: commonDir,
+    worktreeId: await worktreeId(location.gitDir),
+    branch, defaultBranch, baseBranch: baseRef,
+  };
+}
+
 export async function inspectWorktree(target: Target, signal?: AbortSignal): Promise<Inspection> {
   const context = ['-C', target.path];
-  const [paths, ref, head, status, ignored, staged, index] = await Promise.all([
-    git(context, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir'], signal),
+  const [{ root, path, gitDir, commonDir }, ref, head, status, ignored, staged, index] = await Promise.all([
+    worktreeLocation(target.path, signal),
     git(context, ['symbolic-ref', 'HEAD'], signal),
     git(context, ['rev-parse', 'HEAD'], signal),
     git(context, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'], signal),
@@ -61,12 +125,6 @@ export async function inspectWorktree(target: Target, signal?: AbortSignal): Pro
     git(context, ['diff', '--cached', '--raw', '--no-abbrev', '-z', '--no-renames'], signal),
     git(context, ['ls-files', '-v', '--stage', '-z'], signal),
   ]);
-  const [root, gitDir, commonDir] = paths.trimEnd().split('\n');
-  if (!root || !gitDir || !commonDir || gitDir === commonDir) {
-    throw new Error('Очистка доступна для отдельного Git worktree.');
-  }
-  const path = await realpath(root);
-  if (await realpath(target.path) !== path) throw new Error('Путь Git worktree изменился.');
   if (await pathExists(join(gitDir, 'locked'))) throw new Error('Git worktree заблокирован.');
   for (const marker of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'BISECT_START', 'sequencer', 'rebase-apply', 'rebase-merge']) {
     if (await pathExists(join(gitDir, marker))) {
@@ -77,7 +135,16 @@ export async function inspectWorktree(target: Target, signal?: AbortSignal): Pro
     throw new Error('У worktree есть .bb-env-teardown.sh. Для запуска этого скрипта используйте штатную архивацию BB.');
   }
   const branch = ref.trim().slice('refs/heads/'.length);
-  if (branch === 'main' || branch === target.defaultBranch) throw new Error(`Ветка ${branch} защищена.`);
+  const expected = target.expected;
+  if (expected && (branch !== expected.branch || await realpath(commonDir) !== expected.gitDir ||
+      await worktreeId(gitDir) !== expected.worktreeId)) {
+    throw new Error('Привязанный worktree или его ветка изменились. Очистка остановлена.');
+  }
+  const remoteDefault = expected ? await originDefaultBranch(context, signal) : undefined;
+  if (branch === 'main' || branch === target.defaultBranch || branch === remoteDefault ||
+      (expected && !remoteDefault && branch === 'master')) {
+    throw new Error(`Ветка ${branch} защищена.`);
+  }
   for (const entry of index.split('\0')) {
     const tag = entry[0] ?? '';
     const path = entry.slice(entry.indexOf('\t') + 1);

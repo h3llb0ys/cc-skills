@@ -2,11 +2,12 @@ import { realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { experimental_defineHostEntry } from '@get-bb/plugin-sdk/host';
 import { hostCleanup } from './cleanup-contract';
-import { inspectWorktree, removeCheckout, removeLocalBranch } from './cleanup-git';
+import { identifyWorktree, inspectWorktree, removeCheckout, removeLocalBranch } from './cleanup-git';
 
 export default experimental_defineHostEntry({
   contract: hostCleanup,
   handlers: {
+    identify: (input, { signal }) => identifyWorktree(input, signal),
     async worktreePathsInUse({ path, candidates }) {
       const root = await realpath(path);
       const matches = await Promise.all(candidates.map(async candidate => {

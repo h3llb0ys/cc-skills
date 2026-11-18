@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { fitsInline } from './adaptive';
 import { workspaceLabels, type Environment, type Layout } from './labels';
 import { WorkspaceMetadata } from './metadata';
+import { colorStyle, type WorkspaceColors } from './colors';
 
 type Example = { title: string; environment: Environment; tasks: string[] };
 const examples: Example[] = [
@@ -54,9 +55,9 @@ function ExampleRow({ example, layout, autoInline, hideMain }: { example: Exampl
   </div>;
 }
 
-export function LayoutPreview({ layout, autoInline, hideMain = false }: { layout: Layout; autoInline: boolean; hideMain?: boolean }) {
+export function LayoutPreview({ layout, autoInline, hideMain = false, colors }: { layout: Layout; autoInline: boolean; hideMain?: boolean; colors?: WorkspaceColors }) {
   const [width, setWidth] = useState(340);
-  return <div className="workspace-preview">
+  return <div className="workspace-preview" style={colorStyle(colors)}>
     <p className="workspace-preview-description">Условные треды и задачи. Пример обновляется при изменении настроек.</p>
     <label className="workspace-preview-width">Ширина примера <input type="range" min="240" max="480" step="10" value={width}
       onChange={event => setWidth(Number(event.target.value))}/><output>{width} px</output></label>

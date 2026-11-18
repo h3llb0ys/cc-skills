@@ -1,6 +1,7 @@
 import type { Environment, Layout } from './labels';
 import { workspaceLabels } from './labels';
 import type { GitStatus } from './git';
+import { colorStyle, type WorkspaceColors } from './colors';
 
 function Glyph({ kind }: { kind: 'branch' | 'worktree' }) {
   return <svg className="workspace-labels-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -8,10 +9,10 @@ function Glyph({ kind }: { kind: 'branch' | 'worktree' }) {
   </svg>;
 }
 
-export function WorkspaceMetadata({ environment, status, layout, autoInline = true, hideMain = false }: { environment: Environment | null; status?: GitStatus; layout: Layout; autoInline?: boolean; hideMain?: boolean }) {
+export function WorkspaceMetadata({ environment, status, layout, autoInline = true, hideMain = false, colors }: { environment: Environment | null; status?: GitStatus; layout: Layout; autoInline?: boolean; hideMain?: boolean; colors?: WorkspaceColors }) {
   const model = workspaceLabels(environment, status, layout, hideMain);
   if (!model) return null;
-  return <span className={`workspace-labels workspace-labels-${layout}`} data-workspace-auto-inline={String(autoInline)} title={model.tooltip} aria-label={model.tooltip}>
+  return <span className={`workspace-labels workspace-labels-${layout}`} data-workspace-auto-inline={String(autoInline)} style={colorStyle(colors)} title={model.tooltip} aria-label={model.tooltip}>
     {model.labels.map(label => <span key={label.kind} className="workspace-labels-item" data-workspace-kind={label.kind}>
       <Glyph kind={label.kind}/><span className="workspace-labels-text">{label.text}</span>
     </span>)}

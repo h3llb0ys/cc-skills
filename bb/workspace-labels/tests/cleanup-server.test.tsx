@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BbPluginApi, PluginRpcHandlers } from '@get-bb/plugin-sdk';
-import { cleanupRpc } from '../cleanup-contract';
+import { cleanupRpc, type LinkedWorktree } from '../cleanup-contract';
 import { registerCleanup } from '../cleanup-server';
 
 function fixture() {
@@ -12,21 +12,30 @@ function fixture() {
   const thread = { id: 'thread', environmentId: 'env', status: 'idle', archivedAt: null as number | null };
   const environment = {
     id: 'env', hostId: 'host', path: '/worktree', isWorktree: true, defaultBranch: 'main', status: 'ready', managed: false,
+    environmentProviderId: 'git-worktree',
   };
   const steps: string[] = [];
+  const tags: string[] = [];
+  const diskBinding = { path: '/fraudcore/task', gitDir: '/fraudcore/.git', worktreeId: 'worktree',
+    branch: 'feature/task', defaultBranch: 'main', baseBranch: 'refs/remotes/origin/main' };
+  let binding: LinkedWorktree | undefined;
+  let cli!: Parameters<BbPluginApi['cli']['register']>[0];
   const faults = { git: false, close: false, resume: false, pluginInWorktree: false };
   type Dispatch = (context: { thread: typeof thread; environment: typeof environment }) => { action: string };
   let dispatch!: Dispatch;
   let rpc!: PluginRpcHandlers<typeof cleanupRpc>;
   let dispatchDuringRemoval: string | undefined;
+  let beforeSave: (() => Promise<void>) | undefined;
   const bb = {
+    cli: { register: (registration: typeof cli) => { cli = registration; } },
     experimental_hooks: { on: (_name: string, handler: Dispatch) => { dispatch = handler; } },
     hosts: { experimental_client: () => ({
-      call: async (method: string) => {
+      call: async (method: string, input?: { path?: string }) => {
+        if (method === 'identify') return diskBinding;
         if (method === 'worktreePathsInUse') return faults.pluginInWorktree ? ['/worktree/plugin'] : [];
         if (method === 'inspect') {
           if (faults.resume) thread.status = 'active';
-          return inspection;
+          return input?.path ? { ...inspection, path: input.path } : inspection;
         }
         steps.push(method);
         if (method === 'removeCheckout') {
@@ -39,6 +48,17 @@ function fixture() {
     sdk: {
       threads: {
         get: async () => thread,
+        getPluginMetadata: async () => ({ worktree: binding }),
+        updatePluginMetadata: async ({ set, remove }: { set?: { worktree: LinkedWorktree }; remove?: string[] }) => {
+          if (set) {
+            await beforeSave?.();
+            binding = set.worktree;
+          }
+          if (remove?.includes('worktree')) binding = undefined;
+        },
+        experimental_listPluginMetadata: async () => ({
+          threads: binding ? [{ threadId: thread.id, metadata: { worktree: binding } }] : [],
+        }),
         list: async () => thread.archivedAt === null ? [thread] : [],
         archive: async () => {
           steps.push('archive');
@@ -55,7 +75,7 @@ function fixture() {
         ? [{ source: 'path:/worktree/plugin', rootDir: '/worktree/plugin' }] : [] }) },
       environments: { get: async () => environment, list: async () => [environment] },
     },
-    rpc: { register: (contract: unknown, value: typeof rpc) => {
+    rpc: { experimental_invalidate: (changed: string[]) => tags.push(...changed), register: (contract: unknown, value: typeof rpc) => {
       assert.equal(contract, cleanupRpc);
       rpc = value;
     } },
@@ -67,7 +87,9 @@ function fixture() {
     return { ...request, token, discardFiles: false, discardCommits: false, confirmDelete: action === 'delete' };
   }
   return {
-    steps, faults, thread, approval, rpc,
+    steps, faults, thread, environment, approval, rpc, tags,
+    beforeNextLinkSave: (callback: () => Promise<void>) => { beforeSave = callback; },
+    link: () => cli.run(['link', '/fraudcore', '/fraudcore/task', 'origin/main'], { threadId: thread.id }),
     dispatchNow: () => dispatch({ thread, environment }).action,
     get dispatchDuringRemoval() { return dispatchDuringRemoval; },
   };
@@ -137,4 +159,64 @@ test('rejects new turns during cleanup and releases the dispatch guard after a f
   await fixtureState.rpc.execute(input);
   assert.equal(fixtureState.dispatchDuringRemoval, 'reject');
   assert.equal(fixtureState.dispatchNow(), 'proceed');
+});
+
+
+test('cleans a linked project checkout without touching the thread’s managed personal workspace', async () => {
+  const { environment, link, rpc, thread, tags, approval, steps } = fixture();
+  environment.isWorktree = false;
+  environment.managed = true;
+  environment.environmentProviderId = 'personal-workspace';
+  assert.equal((await link()).exitCode, 0);
+  assert.equal(environment.path, '/worktree');
+  const request = { threadId: thread.id, action: 'archive' as const };
+  const preview = await rpc.prepare(request);
+  const bindings = await rpc.linkedWorktrees({ keys: [thread.id] });
+  assert.equal(bindings[thread.id]?.path, '/fraudcore/task');
+  assert.equal(preview.path, '/fraudcore/task');
+  assert.deepEqual(tags, ['linked-worktree:thread']);
+  assert.equal((await rpc.execute(await approval('archive'))).state, 'done');
+  assert.deepEqual(steps, ['removeCheckout', 'archive', 'removeBranch']);
+});
+
+test('does not link another checkout over a native BB worktree', async () => {
+  const { link, rpc, thread } = fixture();
+  await assert.rejects(async () => link(), /собственный Git worktree/);
+  assert.deepEqual(await rpc.linkedWorktrees({ keys: [thread.id] }), {});
+});
+
+test('rejects cleanup while the current thread binding is being persisted', async () => {
+  const { environment, link, approval, rpc, steps, beforeNextLinkSave } = fixture();
+  environment.isWorktree = false;
+  await link();
+  const input = await approval('archive');
+  let signalStarted!: () => void;
+  const started = new Promise<void>(resolve => { signalStarted = resolve; });
+  let resume!: () => void;
+  const paused = new Promise<void>(resolve => { resume = resolve; });
+  beforeNextLinkSave(() => {
+    signalStarted();
+    return paused;
+  });
+  const linking = link();
+  await started;
+  try {
+    await assert.rejects(async () => rpc.execute(input), /операция очистки уже выполняется/i);
+    assert.deepEqual(steps, []);
+  } finally {
+    resume();
+    await linking;
+  }
+  assert.equal((await rpc.execute(input)).state, 'done');
+});
+
+test('clears the binding after checkout removal even when closing the thread fails', async () => {
+  const { environment, link, rpc, thread, tags, approval, faults } = fixture();
+  environment.isWorktree = false;
+  await link();
+  const input = await approval('archive');
+  faults.close = true;
+  assert.equal((await rpc.execute(input)).state, 'failed');
+  assert.deepEqual(await rpc.linkedWorktrees({ keys: [thread.id] }), {});
+  assert.deepEqual(tags, ['linked-worktree:thread', 'linked-worktree:thread']);
 });

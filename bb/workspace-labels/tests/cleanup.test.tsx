@@ -3,8 +3,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { test } from 'node:test';
-import { inspectWorktree, removeCheckout, removeLocalBranch } from '../cleanup-git';
+import { identifyWorktree, inspectWorktree, removeCheckout, removeLocalBranch } from '../cleanup-git';
 
 function fixture(t: { after: (fn: () => void) => void }) {
   const root = mkdtempSync(join(tmpdir(), 'workspace-tools-'));
@@ -274,4 +275,39 @@ fi
 `, { mode: 0o755 });
   await assert.rejects(removeLocalBranch(inspection, false), /другом worktree/);
   assert.equal(git('rev-parse', 'feature/task'), inspection.head);
+});
+
+test('identifies a linked worktree for another project and rejects a different repository', async t => {
+  const { root, path, target } = fixture(t);
+  const binding = await identifyWorktree({ repo: root, path, baseBranch: 'main' });
+  assert.equal(binding.path, await realpath(path));
+  assert.equal(binding.branch, 'feature/task');
+  assert.equal(binding.defaultBranch, 'main');
+  const other = fixture(t);
+  await assert.rejects(identifyWorktree({ repo: other.root, path, baseBranch: 'main' }), /другому репозиторию/);
+  execFileSync('git', ['-C', path, 'branch', '-m', 'another-task']);
+  await assert.rejects(inspectWorktree({ ...target, expected: binding }), /привязанный worktree/i);
+});
+
+test('uses the repository default for cleanup when the worktree was created from a tag or SHA', async t => {
+  const { root, path, git } = fixture(t);
+  git('tag', 'preview-base', 'main');
+  for (const baseBranch of ['preview-base', git('rev-parse', 'main')]) {
+    const binding = await identifyWorktree({ repo: root, path, baseBranch });
+    assert.equal(binding.baseBranch, 'refs/heads/main');
+  }
+  await assert.rejects(identifyWorktree({ repo: root, path, baseBranch: 'missing-ref' }), /missing-ref/);
+});
+
+test('rejects registration if the just-created worktree is now on another branch', async t => {
+  const { root, path } = fixture(t);
+  await assert.rejects(identifyWorktree({
+    repo: root, path, baseBranch: 'main', expectedBranch: 'feature/other',
+  }), /ветка.*изменилась/i);
+});
+
+test('protects master when the remote default is unknown and a local main also exists', async t => {
+  const { root, path } = fixture(t);
+  execFileSync('git', ['-C', path, 'branch', '-m', 'master']);
+  await assert.rejects(identifyWorktree({ repo: root, path, baseBranch: 'main' }), /ветка master защищена/i);
 });

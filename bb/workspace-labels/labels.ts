@@ -2,7 +2,7 @@ import type { GitStatus } from './git';
 export const layouts = ['subtitle', 'badges', 'details'] as const;
 export type Layout = typeof layouts[number];
 export type Environment = {
-  path: string | null; name: string | null; branchName: string | null; isWorktree: boolean | null;
+  path: string | null; name: string | null; branchName: string | null; isWorktree: boolean | null; linked?: boolean;
 };
 export type Label = { kind: 'branch' | 'worktree'; text: string };
 
@@ -25,14 +25,18 @@ export function workspaceLabels(environment: Environment | null, status: GitStat
     ? parts.slice(-2).join('/') : parts.at(-1);
   const name = pathName || environment.name;
   const labels: Label[] = [];
-  if (worktree && name) labels.push({ kind: 'worktree', text: name });
+  if (worktree && name) {
+    labels.push({ kind: 'worktree', text: environment.linked && layout !== 'details' ? branch ?? name : name });
+  }
   const defaultBranch = live?.branch.defaultBranch ?? 'main';
   if (branch && !(hideMain && branch === defaultBranch) && (!labels.length || layout === 'details')) labels.push({ kind: 'branch', text: branch });
   if (!labels.length) return null;
   const tooltip = [
     worktree ? `Worktree: ${environment.path ?? name ?? ''}` : environment.path,
     branch ? `Ветка: ${branch}` : null,
-    !knownCheckout && branch ? 'Ветка из данных BB; Git сейчас не подтверждён' : null,
+    !knownCheckout && branch
+      ? environment.linked ? 'Ветка при привязке worktree' : 'Ветка из данных BB; Git сейчас не подтверждён'
+      : null,
   ].filter(Boolean).join('\n');
   return { labels, tooltip };
 }

@@ -47,18 +47,19 @@ function CleanupRequest({ current }: { current: Request }) {
   const { call } = useRpc<typeof cleanupRpc>();
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
-  const [discardFiles, setDiscardFiles] = useState(false);
-  const [discardCommits, setDiscardCommits] = useState(false);
-  const [showReview, setShowReview] = useState(false);
   const cancelButton = useRef<HTMLButtonElement>(null);
   const deleting = current.action === 'delete';
 
-  async function execute(plan: Preview, files: boolean, commits: boolean) {
+  async function execute(plan: Preview) {
     const toastId = toast.loading('Очистка рабочего окружения…');
     setBusy(true);
     try {
       const result = await call('execute', {
-        ...current, token: plan.token, discardFiles: files, discardCommits: commits, confirmDelete: deleting,
+        ...current,
+        token: plan.token,
+        discardFiles: plan.inspection.fileCount > 0,
+        discardCommits: plan.inspection.unmergedCount > 0,
+        confirmDelete: deleting,
       });
       if (result.state === 'done') {
         toast.success(result.message, { id: toastId });
@@ -77,7 +78,7 @@ function CleanupRequest({ current }: { current: Request }) {
     void call('prepare', current).then(plan => {
       if (cancelled) return;
       if (!deleting && !plan.inspection.fileCount && !plan.inspection.unmergedCount) {
-        void execute(plan, false, false);
+        void execute(plan);
       } else {
         setPreview(plan);
       }
@@ -106,30 +107,17 @@ function CleanupRequest({ current }: { current: Request }) {
           </Dialog.Description>
           <p className="workspace-cleanup-path">{preview.path}</p>
           {deleting && <p>История треда будет удалена без возможности восстановления.</p>}
-          {inspection.fileCount > 0 && <label>
-            <input type="checkbox" checked={discardFiles} disabled={busy} onChange={event => setDiscardFiles(event.target.checked)} />
-            Удалить незакоммиченные и игнорируемые файлы (файлов: {inspection.fileCount})
-          </label>}
-          {inspection.unmergedCount > 0 && <label>
-            <input type="checkbox" checked={discardCommits} disabled={busy} onChange={event => setDiscardCommits(event.target.checked)} />
-            Удалить ветку с коммитами вне {inspection.baseRef} ({inspection.unmergedCount})
-          </label>}
-          {showReview && <div className="workspace-cleanup-review">
-            {[{ title: 'Файлы', entries: inspection.files, total: inspection.fileCount },
-              { title: 'Коммиты', entries: inspection.commits, total: inspection.unmergedCount }]
-              .filter(section => section.total > 0)
-              .map(section => <section key={section.title}>
-                <strong>{section.title}</strong>
-                <pre>{section.entries.join('\n')}</pre>
-                {section.total > section.entries.length && <p>Показано {section.entries.length} из {section.total}.</p>}
-              </section>)}
-          </div>}
+          {inspection.fileCount > 0 && (
+            <p>Будут удалены незакоммиченные и игнорируемые файлы ({inspection.fileCount}).</p>
+          )}
+          {inspection.unmergedCount > 0 && (
+            <p>В ветке есть невлитые коммиты ({inspection.unmergedCount}). Ветка будет удалена.</p>
+          )}
           <footer>
-            {destructive && <button type="button" onClick={() => setShowReview(!showReview)} aria-expanded={showReview}>Просмотр</button>}
             <button type="button" ref={cancelButton} disabled={busy} onClick={() => setRequest(null)}>Отмена</button>
             <button type="button" className="workspace-cleanup-danger"
-              disabled={busy || (inspection.fileCount > 0 && !discardFiles) || (inspection.unmergedCount > 0 && !discardCommits)}
-              onClick={() => void execute(preview, discardFiles, discardCommits)}>
+              disabled={busy}
+              onClick={() => void execute(preview)}>
               {destructive ? 'Удалить принудительно' : labels[current.action]}
             </button>
           </footer>
