@@ -3,13 +3,14 @@ export function decorateRows(doc: Document) {
  let data: Record<string, TaskLink[]> = {};
  const owned = new Map<Element, { signature: string; links: HTMLElement; title: Element; row: Element; content: Element }>();
  let disposed = false;
+ let color: string | null = null;
  const style = doc.createElement('style');
  style.textContent = `
  .jira-task-title-single { display:flex!important; flex:1!important; min-width:0; gap:6px; }
  .jira-task-title-single > .bb-thread-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
  [data-jira-task-links] { position:relative; z-index:32; pointer-events:auto; display:inline-flex; gap:6px; flex-shrink:0; align-items:center; font-size:11px; line-height:18px; }
- [data-jira-task-link] { color:var(--muted-foreground); text-decoration:none; border-radius:4px; padding:0 3px; background:color-mix(in srgb, currentColor 7%, transparent); }
- [data-jira-task-link]:hover { color:var(--foreground); text-decoration:underline; }
+ [data-jira-task-link] { color:var(--jira-task-color,var(--muted-foreground)); text-decoration:none; border-radius:4px; padding:0 3px; background:color-mix(in srgb, currentColor 7%, transparent); }
+ [data-jira-task-link]:hover { color:var(--jira-task-color,var(--foreground)); text-decoration:underline; }
  [data-jira-task-link]:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
  .jira-task-row-multiple { height:auto!important; min-height:var(--bb-sidebar-row-height, 28px)!important; }
  .jira-task-content-multiple { flex-wrap:wrap!important; padding-top:4px; padding-bottom:4px; }
@@ -45,6 +46,7 @@ export function decorateRows(doc: Document) {
      remove(anchor);
      if (!tasks.length || !content || !title || !row) continue;
      const links = doc.createElement('span'); links.dataset.jiraTaskLinks = '';
+     if (color) links.style.setProperty('--jira-task-color',color);
      links.setAttribute('aria-label', 'Актуальные задачи Jira');
      for (const task of tasks) {
        const link = doc.createElement('a'); link.dataset.jiraTaskLink = task.key;
@@ -62,6 +64,13 @@ export function decorateRows(doc: Document) {
  const observer = new doc.defaultView!.MutationObserver(refresh);
  observer.observe(doc.body, { childList:true, subtree:true, attributes:true, attributeFilter:['data-sidebar-thread-id','class'] });
  return {
+   setColor(next: string | null) {
+     color = next && /^#[0-9a-fA-F]{6}$/.test(next) ? next : null;
+     for (const {links} of owned.values()) {
+       if (color) links.style.setProperty('--jira-task-color',color);
+       else links.style.removeProperty('--jira-task-color');
+     }
+   },
    update(next: Record<string, TaskLink[]>) { data = next; refresh(); },
    dispose() { disposed=true; observer.disconnect(); for (const anchor of owned.keys()) remove(anchor); style.remove(); },
  };

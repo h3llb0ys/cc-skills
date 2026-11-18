@@ -1,5 +1,6 @@
 import { defineRpcContract, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
+import { sidebarAppearanceSchema } from './lib/sidebar-appearance';
 import { collectCandidates, type Candidate } from './lib/candidates';
 import { normalizeKeys, changeKeys } from './lib/bindings';
 import { BindingStore, bindingSchema } from './lib/store';
@@ -13,6 +14,8 @@ type CachedIssue = z.infer<typeof cachedIssueSchema>;
 const viewSchema = bindingSchema.extend({ issues: z.array(issueSchema), prefix: z.string() });
 const editSchema = z.object({ threadId: threadIdSchema, expectedRevision: z.number().int().nonnegative(), operation: z.enum(['add','remove','replace']), keys: z.array(z.string().max(100)).max(20), reason: z.string().min(1).max(500) });
 export const rpcContract = defineRpcContract({
+ sidebarAppearance: { input:z.null(), output:sidebarAppearanceSchema },
+ saveSidebarAppearance: { input:sidebarAppearanceSchema, output:sidebarAppearanceSchema },
  candidates: { input: z.object({threadId: threadIdSchema}), output: z.object({ candidates: z.array(z.object({key: z.string(), context: z.string()})).max(100), truncated: z.boolean() }) },
  list: { input: z.object({ threadIds: z.array(threadIdSchema).max(200) }), output: z.record(z.string(), viewSchema) },
  edit: { input: editSchema, output: viewSchema },
@@ -90,6 +93,12 @@ export default function plugin(bb: BbPluginApi) {
    return { ...saved, issues: issues.filter(issue => issue !== null), prefix: projectPrefix };
  }
  bb.rpc.register(rpcContract, {
+   sidebarAppearance: async () => sidebarAppearanceSchema.parse(await bb.storage.kv.get('sidebar-appearance') ?? {color:null}),
+   saveSidebarAppearance: async appearance => {
+     await bb.storage.kv.set('sidebar-appearance',appearance);
+     bb.realtime.publish('sidebar-appearance-changed',{});
+     return appearance;
+   },
    candidates: async ({threadId}, {experimental_signal: signal}) => {
      const thread = await bb.sdk.threads.get({threadId, signal});
      const candidates = new Map<string, Candidate>();

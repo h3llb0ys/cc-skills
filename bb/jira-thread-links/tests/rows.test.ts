@@ -59,3 +59,17 @@ test('moving a reused thread row restores its layout in the new host container',
    assert.equal(newRow.querySelectorAll('[data-jira-task-link]').length, 2);
  } finally { decorate.dispose(); }
 });
+test('sidebar color updates existing and new badges, resets, and never styles the widget',()=>{
+ const {doc}=setup(); const decorate=decorateRows(doc);
+ const widget=doc.createElement('a'); widget.textContent='AFT-1'; doc.body.append(widget);
+ try {
+  decorate.update({thr_a:[issue('AFT-1')]});
+  decorate.setColor('#8b5cf6');
+  assert.equal((doc.querySelector('[data-jira-task-links]') as HTMLElement).style.getPropertyValue('--jira-task-color'),'#8b5cf6');
+  assert.equal(widget.style.length,0);
+  decorate.update({thr_a:[issue('AFT-1'),issue('AFT-2')]});
+  assert.equal((doc.querySelector('[data-jira-task-links]') as HTMLElement).style.getPropertyValue('--jira-task-color'),'#8b5cf6');
+  decorate.setColor(null);
+  assert.equal((doc.querySelector('[data-jira-task-links]') as HTMLElement).style.getPropertyValue('--jira-task-color'),'');
+ }finally{decorate.dispose();}
+});

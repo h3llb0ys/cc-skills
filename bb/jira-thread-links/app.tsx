@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { definePluginApp, experimental_useSidebarThreads, useRealtime, useRpc, useRealtimeConnectionState } from '@get-bb/plugin-sdk/app';
 import { editEvent, editThreadTasks, TaskCardSection, TaskInfoSection, taskSectionTitle } from './thread-tasks';
+import { SidebarColorSettings, useSidebarAppearance } from './sidebar-settings';
 import type { rpcContract } from './server';
 import { decorateRows, type TaskLink } from './lib/rows';
 
@@ -9,7 +10,12 @@ const splitKeys = (value: string) => value.split(/[\s,;]+/).filter(Boolean);
 const fullKey = (key: string, prefix?: string) => /^\d+$/.test(key) && prefix ? `${prefix}-${key}` : key.toUpperCase();
 let decorator: ReturnType<typeof decorateRows> | undefined;
 let latest: Record<string, TaskLink[]> = {};
+let sidebarColor: string | null = null;
 function Overlay() {
+ const {value: appearance} = useSidebarAppearance();
+ useEffect(() => {
+   if (appearance) { sidebarColor=appearance.color; decorator?.setColor(sidebarColor); }
+ }, [appearance]);
  const rpc = useRpc<typeof rpcContract>();
  const { threads } = experimental_useSidebarThreads();
  const connection = useRealtimeConnectionState();
@@ -123,6 +129,7 @@ function Overlay() {
  </dialog>;
 }
 export default definePluginApp(app => {
+ app.slots.settingsSection({id:'sidebar-color',title:'Цвет задач в сайдбаре',component:SidebarColorSettings});
  app.slots.experimental_threadContextCardSection({
    id:'jira-task-links', group:'2_changes_jira', title:taskSectionTitle, component:TaskCardSection,
  });
@@ -130,7 +137,7 @@ export default definePluginApp(app => {
    id:'jira-task-links', group:'2_changes_jira', component:TaskInfoSection,
  });
  app.contentScripts.register({ id:'jira-row-links', mount:() => {
-   decorator=decorateRows(document); decorator.update(latest);
+   decorator=decorateRows(document); decorator.setColor(sidebarColor); decorator.update(latest);
    return () => { decorator?.dispose(); decorator=undefined; };
  } });
  app.slots.experimental_appOverlay({ id:'jira-task-editor', component:Overlay });
