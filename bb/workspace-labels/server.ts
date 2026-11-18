@@ -1,6 +1,8 @@
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
+import { registerCleanup } from './cleanup-server';
 
 export default function plugin(bb: BbPluginApi) {
+  registerCleanup(bb);
   bb.settings.define({
     hideMain: {
       type: 'boolean', label: 'Скрывать main', default: false,

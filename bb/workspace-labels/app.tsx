@@ -6,6 +6,7 @@ import { WorkspaceMetadata } from './metadata';
 import './app.css';
 import { adaptiveRows } from './adaptive';
 import { LayoutPreview } from './preview';
+import { CleanupOverlay, cleanupAction } from './cleanup-ui';
 
 type Data = { layout: Layout; autoInline: boolean; hideMain: boolean; statuses: Record<string, GitStatus> | undefined };
 function useData({ threads }: ExperimentalThreadRowMetadataDataInput): Data {
@@ -25,6 +26,9 @@ function SettingsPreview() {
   return <LayoutPreview layout={parseLayout(values?.layout)} autoInline={values?.autoInline !== false} hideMain={values?.hideMain === true}/>;
 }
 export default definePluginApp(app => {
+  app.slots.experimental_threadAction(cleanupAction('archive'));
+  app.slots.experimental_threadAction(cleanupAction('delete'));
+  app.slots.experimental_appOverlay({ id: 'workspace-cleanup', component: CleanupOverlay });
   app.slots.settingsSection({ id: 'preview', title: 'Как это выглядит', component: SettingsPreview });
   app.contentScripts.register({ id: 'adaptive-row', mount: () => adaptiveRows(document) });
   app.slots.experimental_threadRowMetadata<Data>({ id: 'workspace', order: 50, useData, component: Metadata });

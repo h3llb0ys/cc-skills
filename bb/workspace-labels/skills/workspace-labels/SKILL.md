@@ -1,9 +1,9 @@
 ---
 name: workspace-labels
-description: Choose how Workspace Labels shows branches and worktrees below thread titles.
+description: Choose how Workspace Tools shows branches and worktrees below thread titles.
 ---
 
-Workspace Labels uses BB's standard thread row metadata slot. Its `layout` setting
+Workspace Tools uses BB's standard thread row metadata slot. Its `layout` setting
 is `subtitle` (default), `badges`, or `details`. Change it with
 `bb plugin config workspace-labels set layout <value>`. The change is live.
 
@@ -25,3 +25,7 @@ Requires `threadRowMetadata` and `showRowMetadata` enabled in BB, and the Git pl
 for live branches. A worktree's folder and current branch are in the tooltip.
 Jira bindings remain managed by Jira Thread Links, independently of this layout;
 never infer task ownership from a shared worktree or change bindings for a label.
+
+The thread-row Customize actions menu can pin Archive and clean up or Delete and
+clean up. Cleanup covers a linked Git worktree and its local branch. Confirming
+dirty files, unmerged commits, and permanent thread deletion is per operation.

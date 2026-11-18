@@ -37,3 +37,45 @@
 .workspace-preview-measure { position: fixed; left: -100000px; top: 0; visibility: hidden; pointer-events: none; width: max-content; max-width: none; }
 .workspace-preview-measure .workspace-preview-title-line { flex: none; }
 .workspace-preview-measure .workspace-preview-title { flex: none; overflow: visible; }
+
+.workspace-cleanup-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgb(0 0 0 / .48);
+}
+.workspace-cleanup-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 91;
+  width: min(34rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  display: grid;
+  gap: .75rem;
+  padding: 1.15rem;
+  border: 1px solid var(--border);
+  border-radius: .75rem;
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 12px 36px rgb(0 0 0 / .35);
+  font-size: .875rem;
+  overflow-wrap: anywhere;
+}
+.workspace-cleanup-dialog h2 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.workspace-cleanup-dialog p { margin: 0; }
+.workspace-cleanup-path { color: var(--muted-foreground); font-family: monospace; }
+.workspace-cleanup-dialog label { display: flex; align-items: baseline; gap: .5rem; }
+.workspace-cleanup-review { max-height: 14rem; overflow: auto; }
+.workspace-cleanup-review pre { margin: .25rem 0 .5rem; white-space: pre-wrap; }
+.workspace-cleanup-dialog footer { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: flex-end; }
+.workspace-cleanup-dialog button {
+  border: 1px solid var(--border);
+  border-radius: .45rem;
+  padding: .35rem .65rem;
+  cursor: pointer;
+}
+.workspace-cleanup-dialog button:disabled { opacity: .55; cursor: default; }
+.workspace-cleanup-dialog .workspace-cleanup-danger { background: var(--destructive, #b63636); color: white; }

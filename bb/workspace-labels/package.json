@@ -7,13 +7,14 @@
     "bbPluginSdk": ">=0.6.132"
   },
   "bb": {
-    "name": "Workspace Labels",
-    "description": "Branch and worktree labels below thread titles, with three selectable layouts.",
+    "name": "Workspace Tools",
+    "description": "Branch and worktree labels and verified workspace cleanup from thread actions.",
     "branding": {
       "icon": "FolderGit"
     },
     "server": "./server.ts",
-    "app": "./app.tsx"
+    "app": "./app.tsx",
+    "host": "./cleanup-host.ts"
   },
   "dependencies": {
     "@get-bb/plugin-sdk": "0.6.132",
