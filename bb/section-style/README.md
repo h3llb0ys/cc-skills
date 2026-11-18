@@ -21,17 +21,9 @@ as supplied by BB. With no icon, the label retains its original width. The plugi
 does not rename projects or sections. Settings follow stable IDs through renames
 and sync across BB clients via plugin storage and realtime updates.
 
-## Install from this checkout
+## Installation
 
-```sh
-cd bb/section-style
-npm ci --include=dev
-bb plugin build
-bb plugin install .
-```
-
-Requires BB 0.49+ and SDK 0.6.132+. Disable the plugin to restore the original
-appearance; saved choices are retained until removal.
+[Install or update from GitHub or a local checkout](../README.md).
 
 ## Development and boundaries
 

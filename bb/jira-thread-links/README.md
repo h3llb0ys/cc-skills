@@ -27,23 +27,23 @@
 
 BB SDK 0.6.132 пока не предоставляет слот для метаданных справа от названия. Поэтому поддерживаемый `contentScripts` API добавляет собственные узлы в штатные строки через `data-sidebar-thread-id`, `data-sidebar-rename-row`, `.bb-thread-title`. На выгрузке удаляются узлы, классы, стили и наблюдатель. При смене разметки BB этот небольшой адаптер может потребовать обновления. Альтернативные списки без этих атрибутов не декорируются.
 
-## Проверка и установка
+## Установка
+
+[Установка и обновление из GitHub или локального клона](../README.md).
+
+## Проверка
+
+Из каталога плагина после установки его зависимостей:
 
 ```sh
-cd ~/extra/cc-skills/bb/jira-thread-links
-npm install --include=dev
 npm ci --prefix ../shared-ui
 npm test
 npm run typecheck
-bb plugin build
-bb plugin install . --yes
 ```
 
 Проверены unit/integration тесты набора и конкуренции, Jira RPC через официальный SDK test harness, DOM-поведение в jsdom. В работающем BB проверены одиночный ярлык, несколько ярлыков, тултипы/URL, меню редактора и удаление. Тестовые привязки убраны.
 
 Скилл находится в [`skills/jira-thread-links`](../../skills/jira-thread-links/SKILL.md) репозитория и подключён в плагин симлинком, как у `mr-cycle`.
-
-Плагин устанавливается из этого каталога. После изменения пути: `bb plugin install <новый путь> --yes`. Обновление: `git pull`, `npm install --include=dev`, `bb plugin build`, `bb plugin reload jira-thread-links`.
 
 ## Цвет задач в сайдбаре
 

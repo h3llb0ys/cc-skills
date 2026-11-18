@@ -4,10 +4,7 @@
 
 ## Установка
 
-```sh
-npm ci --include=dev
-bb plugin install . --yes
-```
+[Установка и обновление из GitHub или локального клона](../README.md).
 
 Выбрать Settings → Appearance → Navigation → Provider Limits, если BB не выбрал его автоматически. Настройки: Plugins → Provider Limits → Лимиты провайдеров.
 

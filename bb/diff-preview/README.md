@@ -2,11 +2,7 @@
 
 Показывает Git-диф при наведении на файл в стандартном списке **Changed files** над полем ввода. Превью поддерживает фокус с клавиатуры и закрывается по Esc. Клик по строке выполняет обычное действие BB.
 
-Установка для BB 0.49 и новее:
-
-```sh
-bb plugin install https://github.com/h3llb0ys/cc-skills.git --subdirectory bb/diff-preview
-```
+[Установка и обновление из GitHub или локального клона](../README.md).
 
 Настройки доступны на странице **Diff Preview** в **Settings → Installed plugins**.
 

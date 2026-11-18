@@ -16,27 +16,15 @@
 
 ## Установка
 
-Нужны bb 0.49+ и Node.js с npm.
-
-```bash
-git clone https://github.com/h3llb0ys/cc-skills.git ~/cc-skills
-cd ~/cc-skills/bb/mr-cycle
-npm install
-bb plugin build .
-bb plugin install . --yes
-```
-
-Плагин ставится из этого каталога и читает его на месте: клон не удалять и не переносить.
-Переехал — `bb plugin install <новый путь> --yes`.
+[Установка и обновление из GitHub или локального клона](../README.md).
 
 Скилл в плагине — симлинк `skills/mr-cycle → ../../../skills/mr-cycle`, поэтому правки скилла
-в репозитории bb видит сразу. Чтобы тот же скилл был у Claude Code и вне bb:
+в репозитории bb видит сразу. Чтобы тот же скилл был у Claude Code и вне bb,
+выполните из корня клона:
 
 ```bash
-ln -s ~/cc-skills/skills/mr-cycle ~/.claude/skills/mr-cycle
+ln -s "$(pwd)/skills/mr-cycle" ~/.claude/skills/mr-cycle
 ```
-
-Обновление: `git pull`, затем `bb plugin build .` и `bb plugin reload mr-cycle`.
 
 ## Где видно
 

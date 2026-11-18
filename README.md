@@ -1,6 +1,6 @@
 # cc-skills
 
-Скиллы для Claude Code.
+Скиллы для Claude Code и [плагины для BB](bb/README.md).
 
 ## Установка
 

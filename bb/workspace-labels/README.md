@@ -4,12 +4,7 @@
 
 ## Установка
 
-Из корня этого репозитория: `npm ci --prefix bb/workspace-labels`, затем
-`bb plugin install ./bb/workspace-labels --yes`.
-Из Git:
-`bb plugin install 'git:https://github.com/h3llb0ys/cc-skills.git@main#bb/workspace-labels' --yes`.
-
-Требуется BB 0.49+ с SDK 0.6.132+ и включённый Git-плагин для актуальной ветки.
+[Установка и обновление из GitHub или локального клона](../README.md).
 
 ## Настройки
 
