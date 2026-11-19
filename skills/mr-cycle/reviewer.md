@@ -6,15 +6,23 @@
 ## Запуск
 
 В треде bb (задан `$BB_THREAD_ID`) ревьюер — дочерний тред в том же окружении: так он доступен
-любому провайдеру. Промпт — в файл во временном каталоге сессии, затем:
+любому провайдеру. Сохрани промпт во временном каталоге сессии, задай его путь в
+`prompt_file` и подставь номер итерации в заголовок. Используй CLI приложения, как в
+[`bb.md`](bb.md).
 
 ```bash
-id=$(bb thread spawn --parent-self --lifecycle-owner-thread "$BB_THREAD_ID" \
+bb_cli="${BB_CLI:-$HOME/.bb/bin/bb}"
+result=$("$bb_cli" thread spawn --parent-self --lifecycle-owner-thread "$BB_THREAD_ID" \
   --environment "$BB_ENVIRONMENT_ID" --title "mr-cycle: внешнее ревью <N>" \
-  --prompt-file <файл> --json | jq -r .id)
-bb thread wait "$id" --timeout 9m   # вышел по таймауту — повторить
-bb thread output "$id"
+  --prompt-file "$prompt_file" --json) &&
+  id=$(printf '%s\n' "$result" | jq -er '.id | strings | select(length > 0)') &&
+  printf 'Ревьюер: %s\n' "$id" &&
+  "$bb_cli" thread wait "$id" --timeout 9m &&
+  "$bb_cli" thread output "$id"
 ```
+
+Если ожидание вышло по таймауту, повтори `thread wait` с напечатанным ID и затем получи результат.
+При ошибке запуска разберись с сообщением CLI, прежде чем повторять `thread spawn`.
 
 Провайдер и модель — какие назвал владелец (`--provider`, `--model`), иначе — по умолчанию проекта.
 
