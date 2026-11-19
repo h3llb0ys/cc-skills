@@ -10,6 +10,7 @@ import { CleanupOverlay, cleanupAction } from './cleanup-ui';
 import { cleanupRpc, type LinkedWorktree } from './cleanup-contract';
 import { WorkspaceColorSettings, useWorkspaceColors } from './color-settings';
 import type { WorkspaceColors } from './colors';
+import { WorktreeCardSection, WorktreeInfoSection } from './worktree-widget';
 
 type Data = { colors?: WorkspaceColors; layout: Layout; autoInline: boolean; hideMain: boolean; statuses: Record<string, GitStatus> | undefined; linkedWorktrees: Record<string, LinkedWorktree> | undefined };
 function useData({ threads }: ExperimentalThreadRowMetadataDataInput): Data {
@@ -45,6 +46,12 @@ export default definePluginApp(app => {
   app.slots.experimental_threadAction(cleanupAction('archive'));
   app.slots.experimental_threadAction(cleanupAction('delete'));
   app.slots.experimental_appOverlay({ id: 'workspace-cleanup', component: CleanupOverlay });
+  app.slots.experimental_threadContextCardSection({
+    id: 'worktrees', title: 'Worktrees', group: '2_changes_jira', order: 60, component: WorktreeCardSection,
+  });
+  app.slots.experimental_threadInfoSection({
+    id: 'worktrees', group: '2_changes_jira', order: 60, component: WorktreeInfoSection,
+  });
   app.slots.settingsSection({ id: 'preview', title: 'Цвета и предпросмотр', component: SettingsPreview });
   app.contentScripts.register({ id: 'adaptive-row', mount: () => adaptiveRows(document) });
   app.slots.experimental_threadRowMetadata<Data>({ id: 'workspace', order: 50, useData, component: Metadata });

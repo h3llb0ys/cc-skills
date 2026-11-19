@@ -75,6 +75,24 @@ test('checks the current branch ref before deletion and protects a non-main defa
   assert.equal(existsSync(path), false);
 });
 
+test('preserves a branch that became the remote default after checkout removal', async t => {
+  const { git, target } = fixture(t);
+  const inspection = await inspectWorktree(target);
+  await removeCheckout(target, inspection, false);
+  git('update-ref', 'refs/remotes/origin/feature/task', inspection.head);
+  git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feature/task');
+  await assert.rejects(removeLocalBranch(inspection, true), /ветка feature\/task защищена/i);
+  assert.ok(git('branch', '--list', 'feature/task'));
+});
+
+test('protects the remote default in a native checkout even if BB cached a different default', async t => {
+  const { git, target, path } = fixture(t);
+  git('update-ref', 'refs/remotes/origin/feature/task', git('rev-parse', 'main'));
+  git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feature/task');
+  await assert.rejects(inspectWorktree(target), /ветка feature\/task защищена/i);
+  assert.ok(existsSync(path));
+});
+
 
 test('includes ignored files in review and preserves them without consent', async t => {
   const { path, target, git } = fixture(t);

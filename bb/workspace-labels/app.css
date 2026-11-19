@@ -84,3 +84,42 @@
 .workspace-colors { border: 0; margin: 0; padding: 0; min-width: 0; }
 .workspace-color-fields { display: grid; gap: 12px; margin-bottom: 16px; }
 .workspace-colors legend { margin-bottom: 6px; font-size: 12px; font-weight: 500; }
+
+.workspace-history { display: grid; margin: 0; padding: 0; list-style: none; }
+.workspace-history-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+}
+.workspace-history-row + .workspace-history-row { border-top: 1px solid var(--border); }
+.workspace-history-details { display: grid; gap: 2px; min-width: 0; }
+.workspace-history-name, .workspace-history-branch, .workspace-history-source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-history-name { font-size: 12px; font-weight: 600; }
+.workspace-history-branch { font-family: var(--font-mono); font-size: 11px; }
+.workspace-history-source, .workspace-history-status, .workspace-history-error { color: var(--muted-foreground); font-size: 11px; }
+.workspace-history-status { white-space: nowrap; }
+.workspace-history-action { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 5px; }
+.workspace-history-action svg { width: 14px; height: 14px; }
+.workspace-history-action:not([aria-disabled="true"]):is(:hover, :focus-visible) {
+  color: var(--destructive, #b63636);
+  background: color-mix(in srgb, var(--destructive, #b63636) 14%, transparent);
+  cursor: pointer;
+}
+.workspace-history-action[aria-disabled="true"] { color: var(--muted-foreground); opacity: .6; cursor: default; }
+.workspace-history-tooltip {
+  z-index: 90;
+  max-width: min(16rem, var(--radix-tooltip-content-available-width));
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  font-size: 12px;
+}
+.workspace-history-error button { text-decoration: underline; }

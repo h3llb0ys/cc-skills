@@ -114,6 +114,21 @@ export async function identifyWorktree(input: { repo: string; path: string; base
   };
 }
 
+export async function worktreeState(path: string, expected: Target['expected'], signal?: AbortSignal) {
+  try {
+    if (!await pathExists(path)) return 'removed' as const;
+    const { gitDir, commonDir } = await worktreeLocation(path, signal);
+    if (expected) {
+      const ref = await git(['-C', path], ['symbolic-ref', 'HEAD'], signal);
+      if (ref.trim() !== `refs/heads/${expected.branch}` || await realpath(commonDir) !== expected.gitDir ||
+          await worktreeId(gitDir) !== expected.worktreeId) return 'unavailable' as const;
+    }
+    return 'available' as const;
+  } catch {
+    return 'unavailable' as const;
+  }
+}
+
 export async function inspectWorktree(target: Target, signal?: AbortSignal): Promise<Inspection> {
   const context = ['-C', target.path];
   const [{ root, path, gitDir, commonDir }, ref, head, status, ignored, staged, index] = await Promise.all([
@@ -135,12 +150,12 @@ export async function inspectWorktree(target: Target, signal?: AbortSignal): Pro
     throw new Error('У worktree есть .bb-env-teardown.sh. Для запуска этого скрипта используйте штатную архивацию BB.');
   }
   const branch = ref.trim().slice('refs/heads/'.length);
+  const [repository, checkoutId] = await Promise.all([realpath(commonDir), worktreeId(gitDir)]);
   const expected = target.expected;
-  if (expected && (branch !== expected.branch || await realpath(commonDir) !== expected.gitDir ||
-      await worktreeId(gitDir) !== expected.worktreeId)) {
+  if (expected && (branch !== expected.branch || repository !== expected.gitDir || checkoutId !== expected.worktreeId)) {
     throw new Error('Привязанный worktree или его ветка изменились. Очистка остановлена.');
   }
-  const remoteDefault = expected ? await originDefaultBranch(context, signal) : undefined;
+  const remoteDefault = await originDefaultBranch(context, signal);
   if (branch === 'main' || branch === target.defaultBranch || branch === remoteDefault ||
       (expected && !remoteDefault && branch === 'master')) {
     throw new Error(`Ветка ${branch} защищена.`);
@@ -208,7 +223,7 @@ export async function inspectWorktree(target: Target, signal?: AbortSignal): Pro
     fileVersions.push(...versions);
   }
   const result = {
-    path, gitDir: commonDir, branch, head: head.trim(), baseRef,
+    path, gitDir: repository, worktreeId: checkoutId, branch, head: head.trim(), baseRef,
     files: files.slice(0, limit), fileCount: files.length,
     commits: log.trimEnd().split('\n').filter(Boolean),
     unmergedCount: unmerged.split('\n').filter(Boolean).length,
@@ -274,7 +289,12 @@ async function deletePreparedRef(
 export async function removeLocalBranch(inspection: Inspection, force: boolean, signal?: AbortSignal) {
   const { gitDir, branch, baseRef, head } = inspection;
   const context = ['--git-dir', gitDir];
-  if (branch === 'main') throw new Error('Ветка main защищена.');
+  const verifyBranchProtection = async () => {
+    if (branch === 'main' || branch === await originDefaultBranch(context, signal)) {
+      throw new Error(`Ветка ${branch} защищена.`);
+    }
+  };
+  await verifyBranchProtection();
   const ref = `refs/heads/${branch}`;
   const actual = await git(context, ['for-each-ref', '--format=%(refname) %(objectname)', ref], signal);
   const tip = actual.split('\n').find(line => line.startsWith(`${ref} `))?.slice(ref.length + 1);
@@ -328,6 +348,7 @@ export async function removeLocalBranch(inspection: Inspection, force: boolean, 
       'option no-deref',
       `delete ${ref} ${head}`,
     ], async () => {
+      await verifyBranchProtection();
       // The files backend locks main HEAD itself when its referent is verified.
       if (gitLocksMainHead) {
         const current = await lstat(mainHeadPath, { bigint: true });

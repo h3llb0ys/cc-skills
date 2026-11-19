@@ -15,6 +15,19 @@ export const linkedWorktreeSchema = worktreeIdentitySchema.extend({
 });
 export type LinkedWorktree = z.infer<typeof linkedWorktreeSchema>;
 export const worktreeTag = (threadId: string) => `linked-worktree:${threadId}`;
+export const worktreeHistoryTag = 'worktree-history';
+const worktreeState = z.enum(['available', 'removed', 'unavailable']);
+const worktreeRow = z.object({
+  key: z.string(),
+  path: z.string(),
+  branch: z.string().nullable(),
+  repository: z.string().nullable(),
+  sourceId: z.string(),
+  sourceTitle: z.string().nullable(),
+  state: worktreeState,
+  blockedReason: z.string().nullable(),
+});
+export type WorktreeRow = z.infer<typeof worktreeRow>;
 
 export const targetSchema = z.object({
   path: z.string().min(1),
@@ -26,6 +39,7 @@ export const targetSchema = z.object({
 export const inspectionSchema = z.object({
   path: z.string(),
   gitDir: z.string(),
+  worktreeId: z.string(),
   branch: z.string(),
   head: z.string(),
   baseRef: z.string(),
@@ -54,6 +68,13 @@ export const hostCleanup = defineRpcContract({
     output: z.array(z.string()),
     experimental_retryable: true,
   },
+  worktreeStates: {
+    input: z.object({ paths: z.array(z.object({
+      key: z.string(), path: z.string(), expected: worktreeIdentitySchema.optional(),
+    })).max(50) }),
+    output: z.record(z.string(), worktreeState),
+    experimental_retryable: true,
+  },
   inspect: { input: targetSchema, output: inspectionSchema, experimental_retryable: true },
   removeCheckout: {
     input: z.object({ target: targetSchema, inspection: inspectionSchema, force: z.boolean() }),
@@ -65,7 +86,13 @@ export const hostCleanup = defineRpcContract({
   },
 });
 
-const request = z.object({ threadId: z.string(), action: actionSchema });
+const threadRequest = z.object({ threadId: z.string(), action: actionSchema });
+const worktreeRequest = z.object({ threadId: z.string(), action: z.literal('worktree'), worktreeKey: z.string().min(1) });
+const request = z.union([threadRequest, worktreeRequest]);
+const confirmation = z.object({
+  token: z.string(), discardFiles: z.boolean(), discardCommits: z.boolean(), confirmDelete: z.boolean(),
+});
+export type CleanupRequestInput = z.infer<typeof request>;
 const preview = z.object({
   path: z.string(),
   title: z.string(),
@@ -79,6 +106,11 @@ const outcome = z.object({
 export type Preview = z.infer<typeof preview>;
 
 export const cleanupRpc = defineRpcContract({
+  worktreeHistory: {
+    input: z.object({ threadId: z.string() }),
+    output: z.array(worktreeRow),
+    tags: () => [worktreeHistoryTag],
+  },
   linkedWorktrees: {
     input: z.object({ keys: z.array(z.string().min(1)).min(1).max(200) }),
     output: z.record(z.string(), linkedWorktreeSchema),
@@ -86,12 +118,7 @@ export const cleanupRpc = defineRpcContract({
   },
   prepare: { input: request, output: preview },
   execute: {
-    input: request.extend({
-      token: z.string(),
-      discardFiles: z.boolean(),
-      discardCommits: z.boolean(),
-      confirmDelete: z.boolean(),
-    }),
+    input: z.union([threadRequest.extend(confirmation.shape), worktreeRequest.extend(confirmation.shape)]),
     output: outcome,
   },
 });

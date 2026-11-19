@@ -5,7 +5,7 @@ import { experimental_scanPublicSdkOnly } from '@get-bb/plugin-sdk/testing';
 
 test('plugin and its shared palette depend only on public SDK and declared public packages', () => {
   const result = experimental_scanPublicSdkOnly(fileURLToPath(new URL('..', import.meta.url)), {
-    allow: [/^jsdom$/, /^react$/, /^react-dom\/(?:client|server)$/, /^@radix-ui\/react-dialog$/, /^sonner$/],
+    allow: [/^better-sqlite3$/, /^jsdom$/, /^react$/, /^react-dom\/(?:client|server)$/, /^@radix-ui\/react-(?:dialog|tooltip)$/, /^sonner$/],
   });
   const violations = result.violations.filter(({ file, reason, specifier }) =>
     !(reason === 'outside-package' && (

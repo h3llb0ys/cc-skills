@@ -6,10 +6,10 @@ import {
 } from '@get-bb/plugin-sdk/app';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
-import { cleanupRpc, type CleanupAction, type Preview } from './cleanup-contract';
+import { cleanupRpc, type CleanupAction, type CleanupRequestInput, type Preview } from './cleanup-contract';
 
-const labels = { archive: 'Архивировать и очистить', delete: 'Удалить и очистить' };
-type Request = { threadId: string; action: CleanupAction };
+const labels = { archive: 'Архивировать и очистить', delete: 'Удалить и очистить', worktree: 'Архивировать worktree' };
+type Request = CleanupRequestInput;
 let request: Request | null = null;
 const listeners = new Set<() => void>();
 function subscribe(listener: () => void) {
@@ -38,6 +38,10 @@ export function cleanupAction(action: CleanupAction): PluginThreadActionRegistra
   };
 }
 
+export function archiveWorktree(threadId: string, worktreeKey: string) {
+  if (!request) setRequest({ threadId, action: 'worktree', worktreeKey });
+}
+
 export function CleanupOverlay() {
   const current = useSyncExternalStore(subscribe, () => request);
   return current && <CleanupRequest key={current.threadId + current.action} current={current} />;
@@ -49,9 +53,10 @@ function CleanupRequest({ current }: { current: Request }) {
   const [busy, setBusy] = useState(false);
   const cancelButton = useRef<HTMLButtonElement>(null);
   const deleting = current.action === 'delete';
+  const standalone = current.action === 'worktree';
 
   async function execute(plan: Preview) {
-    const toastId = toast.loading('Очистка рабочего окружения…');
+    const toastId = toast.loading(standalone ? 'Очистка worktree…' : 'Очистка рабочего окружения…');
     setBusy(true);
     try {
       const result = await call('execute', {
@@ -107,6 +112,7 @@ function CleanupRequest({ current }: { current: Request }) {
           </Dialog.Description>
           <p className="workspace-cleanup-path">{preview.path}</p>
           {deleting && <p>История треда будет удалена без возможности восстановления.</p>}
+          {standalone && <p>Будут удалены worktree и его локальная ветка.</p>}
           {inspection.fileCount > 0 && (
             <p>Будут удалены незакоммиченные и игнорируемые файлы ({inspection.fileCount}).</p>
           )}

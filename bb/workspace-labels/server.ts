@@ -24,6 +24,15 @@ export default function plugin(bb: BbPluginApi) {
     },
   });
   bb.settings.define({
+    showWorktreeWidget: {
+      type: 'boolean', label: 'Показывать Worktrees в правой панели', default: true,
+    },
+    worktreeWidgetMode: {
+      type: 'select', label: 'Какие worktree показывать',
+      options: ['all', 'latest'],
+      experimental_optionLabels: { all: 'Все связанные', latest: 'Последний активный' },
+      default: 'all',
+    },
     hideMain: {
       type: 'boolean', label: 'Скрывать main', default: false,
     },
