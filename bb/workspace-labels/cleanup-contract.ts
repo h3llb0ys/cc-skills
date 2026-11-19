@@ -40,7 +40,7 @@ export const inspectionSchema = z.object({
   path: z.string(),
   gitDir: z.string(),
   worktreeId: z.string(),
-  branch: z.string(),
+  branch: z.string().nullable(),
   head: z.string(),
   baseRef: z.string(),
   files: z.array(z.string()),

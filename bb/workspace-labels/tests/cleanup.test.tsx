@@ -20,6 +20,21 @@ function fixture(t: { after: (fn: () => void) => void }) {
   return { root, path, git, target: { path, defaultBranch: 'main', baseBranch: 'main' } };
 }
 
+test('inspects and removes a detached worktree after its branch was deleted', async t => {
+  const { git, path, target } = fixture(t);
+  git('-C', path, 'switch', '--detach');
+  git('branch', '-d', 'feature/task');
+  writeFileSync(join(path, 'local.txt'), 'draft');
+  const inspection = await inspectWorktree(target);
+  assert.equal(inspection.branch, null);
+  assert.equal(inspection.fileCount, 1);
+  assert.equal(inspection.unmergedCount, 0);
+  await assert.rejects(removeCheckout(target, inspection, false), /подтверждение/i);
+  await removeCheckout(target, inspection, true);
+  assert.equal(existsSync(path), false);
+  assert.ok(git('branch', '--list', 'main'));
+});
+
 test('cleans a clean linked worktree and its branch, preserving main', async t => {
   const { root, path, git, target } = fixture(t);
   const inspection = await inspectWorktree(target);

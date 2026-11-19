@@ -108,7 +108,7 @@ function CleanupRequest({ current }: { current: Request }) {
         }}>
           <Dialog.Title>{labels[current.action]}</Dialog.Title>
           <Dialog.Description>
-            {preview.title} · {inspection.branch}
+            {preview.title} · {inspection.branch ?? inspection.head.slice(0, 8)}
           </Dialog.Description>
           <p className="workspace-cleanup-path">{preview.path}</p>
           {deleting && <p>История треда будет удалена без возможности восстановления.</p>}
@@ -117,7 +117,9 @@ function CleanupRequest({ current }: { current: Request }) {
             <p>Будут удалены незакоммиченные и игнорируемые файлы ({inspection.fileCount}).</p>
           )}
           {inspection.unmergedCount > 0 && (
-            <p>В ветке есть невлитые коммиты ({inspection.unmergedCount}). Ветка будет удалена.</p>
+            <p>{inspection.branch
+              ? `В ветке есть невлитые коммиты (${inspection.unmergedCount}). Ветка будет удалена.`
+              : `В worktree есть невлитые коммиты (${inspection.unmergedCount}). Они могут стать недоступны.`}</p>
           )}
           <footer>
             <button type="button" ref={cancelButton} disabled={busy} onClick={() => setRequest(null)}>Отмена</button>

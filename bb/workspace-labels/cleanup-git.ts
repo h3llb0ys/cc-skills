@@ -131,9 +131,9 @@ export async function worktreeState(path: string, expected: Target['expected'], 
 
 export async function inspectWorktree(target: Target, signal?: AbortSignal): Promise<Inspection> {
   const context = ['-C', target.path];
-  const [{ root, path, gitDir, commonDir }, ref, head, status, ignored, staged, index] = await Promise.all([
+  const [{ root, path, gitDir, commonDir }, branchName, head, status, ignored, staged, index] = await Promise.all([
     worktreeLocation(target.path, signal),
-    git(context, ['symbolic-ref', 'HEAD'], signal),
+    git(context, ['branch', '--show-current'], signal),
     git(context, ['rev-parse', 'HEAD'], signal),
     git(context, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'], signal),
     git(context, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard'], signal),
@@ -149,7 +149,7 @@ export async function inspectWorktree(target: Target, signal?: AbortSignal): Pro
   if (target.managed && await pathExists(join(root, '.bb-env-teardown.sh'))) {
     throw new Error('У worktree есть .bb-env-teardown.sh. Для запуска этого скрипта используйте штатную архивацию BB.');
   }
-  const branch = ref.trim().slice('refs/heads/'.length);
+  const branch = branchName.trim() || null;
   const [repository, checkoutId] = await Promise.all([realpath(commonDir), worktreeId(gitDir)]);
   const expected = target.expected;
   if (expected && (branch !== expected.branch || repository !== expected.gitDir || checkoutId !== expected.worktreeId)) {
@@ -175,8 +175,8 @@ export async function inspectWorktree(target: Target, signal?: AbortSignal): Pro
       throw new Error(`Git исключает ${path} из проверки изменений (${flag}). Очистка остановлена.`);
     }
   }
-  const isOwnRef = (ref: string) =>
-    ref === `refs/heads/${branch}` || (ref.startsWith('refs/remotes/') && ref.endsWith('/' + branch));
+  const isOwnRef = (ref: string) => branch !== null &&
+    (ref === `refs/heads/${branch}` || (ref.startsWith('refs/remotes/') && ref.endsWith('/' + branch)));
   let baseRef = await resolveBase(context, target.baseBranch === branch ? target.defaultBranch : target.baseBranch, signal);
   if (isOwnRef(baseRef)) baseRef = await resolveBase(context, target.defaultBranch, signal);
   if (isOwnRef(baseRef)) throw new Error('Нужна целевая ветка, отличная от очищаемой ветки.');
@@ -288,6 +288,7 @@ async function deletePreparedRef(
 
 export async function removeLocalBranch(inspection: Inspection, force: boolean, signal?: AbortSignal) {
   const { gitDir, branch, baseRef, head } = inspection;
+  if (branch === null) return true;
   const context = ['--git-dir', gitDir];
   const verifyBranchProtection = async () => {
     if (branch === 'main' || branch === await originDefaultBranch(context, signal)) {

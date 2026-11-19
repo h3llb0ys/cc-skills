@@ -460,8 +460,10 @@ export function registerCleanup(bb: BbPluginApi) {
             if (!result.archivedThreadIds.includes(threadId)) throw new Error('BB не подтвердил архивацию треда.');
           }
         } catch (error) {
-          return { state: 'failed' as const, message: `Worktree удалён, ветка сохранена. Не удалось подтвердить закрытие треда. Проверьте его состояние в BB. ${errorText(error)}` };
+          const state = inspection.branch ? 'Worktree удалён, ветка сохранена.' : 'Worktree удалён.';
+          return { state: 'failed' as const, message: `${state} Не удалось подтвердить закрытие треда. Проверьте его состояние в BB. ${errorText(error)}` };
         }
+        if (inspection.branch === null) return { state: 'done' as const, message: 'Worktree удалён.' };
         try {
           await host.call('removeBranch', { inspection, force: input.discardCommits }, { hostId });
         } catch (error) {
