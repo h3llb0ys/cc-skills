@@ -6,7 +6,7 @@ import {
 } from '@get-bb/plugin-sdk/app';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
-import { cleanupRpc, type CleanupAction, type Preview } from './cleanup-contract';
+import { cleanupRpc, type CleanupAction, type Preview } from './contract';
 
 const labels = { archive: 'Архивировать и очистить', delete: 'Удалить и очистить' };
 type Request = { threadId: string; action: CleanupAction };

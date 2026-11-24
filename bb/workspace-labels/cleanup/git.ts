@@ -5,7 +5,7 @@ import { isAbsolute, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { experimental_killProcessesWithCwdUnder } from '@get-bb/plugin-sdk/host';
-import type { Inspection, Target } from './cleanup-contract';
+import type { Inspection, Target } from './contract';
 
 const run = promisify(execFile);
 const limit = 50;

@@ -9,7 +9,7 @@ test('plugin and its shared palette depend only on public SDK and declared publi
   });
   const violations = result.violations.filter(({ file, reason, specifier }) =>
     !(reason === 'outside-package' && (
-      (file === 'color-settings.tsx' && specifier === '../shared-ui/color-palette') ||
+      (file === 'components/color-settings.tsx' && specifier === '../../shared-ui/color-palette') ||
       (file === 'tests/color-picker.test.tsx' && specifier === '../../shared-ui/color-palette')
     )),
   );

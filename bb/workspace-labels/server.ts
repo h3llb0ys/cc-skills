@@ -1,6 +1,6 @@
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
-import { registerCleanup } from './cleanup-server';
-import { colorsRpc, colorsSchema, colorsTag, defaultColors } from './colors';
+import { registerCleanup } from './cleanup/server';
+import { colorsRpc, colorsSchema, colorsTag, defaultColors } from './sidebar/colors';
 
 export default function plugin(bb: BbPluginApi) {
   registerCleanup(bb);

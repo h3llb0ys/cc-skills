@@ -21,6 +21,9 @@
     "skipLibCheck": false
   },
   "include": [
+    "components",
+    "sidebar",
+    "cleanup",
     "*.ts",
     "*.tsx",
     "tests"

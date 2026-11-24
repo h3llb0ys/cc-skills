@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BbPluginApi, PluginRpcHandlers } from '@get-bb/plugin-sdk';
-import { cleanupRpc, type LinkedWorktree } from '../cleanup-contract';
-import { registerCleanup } from '../cleanup-server';
+import { cleanupRpc, type LinkedWorktree } from '../cleanup/contract';
+import { registerCleanup } from '../cleanup/server';
 
 function fixture() {
   const inspection = {

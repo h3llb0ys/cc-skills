@@ -1,15 +1,15 @@
 import { definePluginApp, experimental_useRpcKeyedQuery, useSettings } from '@get-bb/plugin-sdk/app';
 import type { ExperimentalThreadRowMetadataDataInput, ExperimentalThreadRowMetadataProps } from '@get-bb/plugin-sdk';
-import { git, type GitStatus } from './git';
-import { parseLayout, type Layout } from './labels';
-import { WorkspaceMetadata } from './metadata';
+import { git, type GitStatus } from './sidebar/git';
+import { parseLayout, type Layout } from './sidebar/labels';
+import { WorkspaceMetadata } from './components/metadata';
 import './app.css';
-import { adaptiveRows } from './adaptive';
-import { LayoutPreview } from './preview';
-import { CleanupOverlay, cleanupAction } from './cleanup-ui';
-import { cleanupRpc, type LinkedWorktree } from './cleanup-contract';
-import { WorkspaceColorSettings, useWorkspaceColors } from './color-settings';
-import type { WorkspaceColors } from './colors';
+import { adaptiveRows } from './sidebar/adaptive';
+import { LayoutPreview } from './components/preview';
+import { CleanupOverlay, cleanupAction } from './cleanup/overlay';
+import { cleanupRpc, type LinkedWorktree } from './cleanup/contract';
+import { WorkspaceColorSettings, useWorkspaceColors } from './components/color-settings';
+import type { WorkspaceColors } from './sidebar/colors';
 
 type Data = { colors?: WorkspaceColors; layout: Layout; autoInline: boolean; hideMain: boolean; statuses: Record<string, GitStatus> | undefined; linkedWorktrees: Record<string, LinkedWorktree> | undefined };
 function useData({ threads }: ExperimentalThreadRowMetadataDataInput): Data {

@@ -1,6 +1,6 @@
 import { cliCommand, defineCli, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { createHash } from 'node:crypto';
-import { cleanupRpc, hostCleanup, linkedWorktreeSchema, worktreeTag, type CleanupAction, type LinkedWorktree } from './cleanup-contract';
+import { cleanupRpc, hostCleanup, linkedWorktreeSchema, worktreeTag, type CleanupAction, type LinkedWorktree } from './contract';
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 

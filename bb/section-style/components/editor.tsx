@@ -1,9 +1,9 @@
-import { ColorPalette } from '../shared-ui/color-palette';
+import { ColorPalette } from '../../shared-ui/color-palette';
 import { useEffect, useRef, useState } from 'react';
 import { useRpc } from '@get-bb/plugin-sdk/app';
-import type { rpcContract } from './server';
-import { getHeadingDefaultFontSize } from './lib/decorate';
-import { emptyAppearance, appearanceSchema, icons, iconLabels, fontSizeMin, fontSizeMax, fontSizeDefault, type Appearance, type IconName, type Target } from './lib/appearance';
+import type { rpcContract } from '../server';
+import { getHeadingDefaultFontSize } from '../lib/decorate';
+import { emptyAppearance, appearanceSchema, icons, iconLabels, fontSizeMin, fontSizeMax, fontSizeDefault, type Appearance, type IconName, type Target } from '../lib/appearance';
 
 export function Glyph({name}:{name:IconName}) {
  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={icons[name]}/></svg>;

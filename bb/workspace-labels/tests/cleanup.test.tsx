@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { test } from 'node:test';
-import { identifyWorktree, inspectWorktree, removeCheckout, removeLocalBranch } from '../cleanup-git';
+import { identifyWorktree, inspectWorktree, removeCheckout, removeLocalBranch } from '../cleanup/git';
 
 function fixture(t: { after: (fn: () => void) => void }) {
   const root = mkdtempSync(join(tmpdir(), 'workspace-tools-'));

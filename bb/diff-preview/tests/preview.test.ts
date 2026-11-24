@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { patchKey, selectTarget } from "../git";
-import { previewPosition } from "../hover";
+import { previewPosition } from "../hooks/hover";
 
 const bounds = (left: number, top: number, width: number, height: number) =>
   ({ left, top, width, height, right: left + width, bottom: top + height }) as DOMRectReadOnly;

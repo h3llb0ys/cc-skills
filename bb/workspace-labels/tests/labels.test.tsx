@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
-import { workspaceLabels, parseLayout, layouts, type Environment } from '../labels';
-import { WorkspaceMetadata } from '../metadata';
-import { fitsInline } from '../adaptive';
-import { LayoutPreview } from '../preview';
+import { workspaceLabels, parseLayout, layouts, type Environment } from '../sidebar/labels';
+import { WorkspaceMetadata } from '../components/metadata';
+import { fitsInline } from '../sidebar/adaptive';
+import { LayoutPreview } from '../components/preview';
 
 test('hideMain hides only the default branch in every layout and keeps worktree identity', () => {
   const main = { outcome: 'available', workspace: { branch: { currentBranch: 'main', defaultBranch: 'main' }, checkout: { kind: 'branch' } } };
