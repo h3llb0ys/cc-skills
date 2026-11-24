@@ -606,6 +606,95 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(self.invoke("review", self.key)["changed"], [REPLY])
         self.assertNotIn("source_problem", self.invoke("watch", "list")[0])
 
+    def test_two_questions_in_one_thread_read_then_close_only_one(self):
+        self.invoke(*self.options, "--draft")
+        self.rows.extend([post(REPLY, 2, ROOT), post(OTHER, 3, ROOT)])
+        self.assertEqual(self.invoke("check", self.key)["outcome"], "reviewing")
+        self.assertEqual(self.invoke("check", self.key)["outcome"], "busy")
+        token = self.invoke("review", self.key)["token"]
+        cards = Path(self.folder.name) / "cards.json"
+        cards.write_text(json.dumps([dict(post_id=k, status="answer", headline=k, body="Нужен ответ", draft="Да")
+                                     for k in (REPLY, OTHER)]))
+        self.invoke("resolve", self.key, token, "--awaiting", REPLY, "--awaiting", OTHER, "--cards-file", str(cards))
+        first, second = self.invoke("board")["answer"]["rows"]
+        self.invoke("read-card", str(first["id"]), str(first["revision"]))
+        self.assertTrue(self.invoke("board")["answer"]["rows"][0]["opened"])
+        self.assertEqual(self.invoke("check", self.key)["outcome"], "quiet")
+        confirmation = "f"*26
+        self.rows.append(post(confirmation, 4, ROOT))
+        self.invoke("check", self.key)
+        token = self.invoke("review", self.key)["token"]
+        text = Path(self.folder.name) / "reply"
+        text.write_text("Решено")
+        self.invoke("resolve", self.key, token, "--answered", second["url"].split("/")[-1], "--status", "resolved",
+                    "--post-id", confirmation, "--message-file", str(text))
+        board = self.invoke("board")
+        self.assertEqual([c["id"] for c in board["resolved"]["rows"]], [second["id"]])
+        self.invoke("read-card", str(second["id"]), str(second["revision"]))
+        self.assertFalse(self.invoke("board")["resolved"]["rows"][0]["opened"])
+        self.assertEqual(board["answer"]["rows"][0]["id"], first["id"])
+        self.assertTrue(board["answer"]["rows"][0]["opened"])
+        self.assertTrue(self.invoke("inbox", "--chat", "target")["rows"])
+
+    def test_second_watch_preserves_personal_priority_and_requested_draft(self):
+        self.invoke(*self.options, "--draft")
+        options = self.options.copy()
+        options[options.index("target")] = "other-chat"
+        observer = self.invoke(*options)["id"]
+        self.rows.append(post(REPLY, 2, ROOT))
+        path = Path(self.folder.name) / "cards"
+        for key, status, flags in ((self.key, "answer", ["--awaiting", REPLY]), (observer, "attention", [])):
+            path.write_text(json.dumps([dict(post_id=REPLY, status=status, headline="Дата", body="Уточнить", draft="Завтра")]))
+            self.invoke("check", key)
+            review = self.invoke("review", key)
+            self.invoke("resolve", key, review["token"], "--cards-file", str(path), *flags)
+            row = self.invoke("board")["answer"]["rows"][0]
+            self.assertEqual(row["draft"], "Завтра")
+            if key == self.key:
+                self.invoke("read-card", str(row["id"]), str(row["revision"]))
+            else:
+                self.assertTrue(row["opened"])
+
+    def test_legacy_thread_closes_without_chat_notification(self):
+        with closing(watches.connect()) as db, db:
+            data = json.loads(db.execute("SELECT data FROM watches WHERE id=?", (self.key,)).fetchone()[0])
+            data["status"] = "answer"
+            watches.save(db, self.key, data)
+            db.execute("DROP TABLE board_sources")
+            db.execute("DROP TABLE board_cards")
+        row = self.invoke("board")["answer"]["rows"][0]
+        self.rows.append(post(REPLY, 2, ROOT))
+        self.invoke("check", self.key)
+        token = self.invoke("review", self.key)["token"]
+        self.invoke("resolve", self.key, token, "--status", "resolved")
+        self.assertEqual(self.invoke("board")["resolved"]["rows"][0]["id"], row["id"])
+
+    def test_overlapping_subscriptions_share_one_read_state_and_survive_removal(self):
+        options = self.options.copy()
+        options[options.index("target")] = "other-chat"
+        second = self.invoke(*options)["id"]
+        self.rows.append(post(REPLY, 2, ROOT))
+        cards = Path(self.folder.name) / "cards"
+        cards.write_text(json.dumps([dict(post_id=REPLY, status="attention", headline="Проверить", body="Кэш")]))
+        for key in (self.key, second):
+            self.invoke("check", key)
+            token = self.invoke("review", key)["token"]
+            self.invoke("resolve", key, token, "--cards-file", str(cards))
+        rows = self.invoke("board")["attention"]["rows"]
+        self.assertEqual(len(rows), 1)
+        self.invoke("read-card", str(rows[0]["id"]), str(rows[0]["revision"]))
+        self.invoke("unwatch", self.key)
+        row = self.invoke("board")["attention"]["rows"][0]
+        self.assertTrue(row["opened"])
+        self.assertEqual(row["chat"], "other-chat")
+        self.rows = [post(ROOT, 1), post(OTHER, 4, ROOT)]
+        self.invoke("check", second)
+        review = self.invoke("review", second)
+        self.assertIn(REPLY, review["board_items"])
+        cards.write_text(json.dumps([dict(post_id=REPLY, status="resolved", headline="Готово", body="Проверено")]))
+        self.invoke("resolve", second, review["token"], "--cards-file", str(cards))
+        self.assertEqual(self.invoke("board")["resolved"]["rows"][0]["id"], row["id"])
+
     def test_unwatch_recovers_schedule_after_interrupted_enable(self):
         empty = subprocess.CompletedProcess([], 0, "[]")
         self.calls.side_effect = [empty, None, subprocess.CalledProcessError(1, "list")]

@@ -36,7 +36,15 @@ const summary = z.object({
 const thread = z.string().min(1);
 const cursor = z.number().int().positive();
 export type Summary = z.infer<typeof summary>;
+const card = z.object({ id: cursor, revision: cursor, headline: z.string(), body: z.string(), draft: z.string(), author: z.string(),
+  updated: z.number().int(), opened: z.boolean(), source: z.string(), url, chat: thread });
+export type BoardCard = z.infer<typeof card>;
+const section = z.object({ total: z.number().int().nonnegative(), rows: z.array(card) });
 export const contract = defineRpcContract({
+  board: { input: z.record(signal, z.number().int().nonnegative()), output: z.record(signal, section) },
+  readCard: { input: z.object({ id: cursor, revision: cursor }), output: z.null() },
+  check: { input: z.object({ id }), output: z.object({
+    outcome: z.enum(["busy", "reviewing", "quiet", "failed"]), problem: z.string().optional() }) },
   inbox: { input: z.object({ chat: thread, before: cursor.optional() }), output: z.object({
     rows: z.array(summary), latest: summary.nullable(), unread: z.number(), more: z.boolean(), child: z.string().nullable(),
   }) },

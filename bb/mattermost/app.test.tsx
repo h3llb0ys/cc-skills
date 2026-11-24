@@ -4,15 +4,15 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { expect, it } from "vitest";
 import { contract } from "./contract";
 
-it("navigates from the registry, edits conditions and applies the shared color picker", async () => {
+it("navigates from the registry, edits conditions and leaves the palette in plugin settings", async () => {
   const app = await loadPluginApp(() => import("./app"));
   const w = { id: "a".repeat(20), chat: "thread1", owner: "project1", url: "https://mm.example/team/pl/abc",
     interval: 5, rule: "QA", push: null, until: null, draft: false, schedule: "schedule1", timezone: "UTC",
     paused: false, status: "answer", title: "Релиз", kind: "thread" };
-  const edits: unknown[] = [], choices: unknown[] = [];
-  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
+  const edits: unknown[] = [];
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "list" }, {
     rpc: { list: () => ({ watches: [w], colors: { answer: null, attention: null, resolved: null } }),
-      edit: input => { edits.push(input); return null; }, color: input => { choices.push(input); return null; } },
+      edit: input => { edits.push(input); return null; } },
     openUrl: () => true,
   });
   try {
@@ -31,10 +31,36 @@ it("navigates from the registry, edits conditions and applies the shared color p
     fireEvent.change(slot.getByLabelText("Интервал, минуты"), { target: { value: "12" } });
     fireEvent.click(slot.getByText("Сохранить"));
     await waitFor(() => expect(edits).toMatchObject([{ interval: 12, rule: "QA" }]));
-    fireEvent.click(slot.getByText("Цвета"));
-    fireEvent.click(slot.getByLabelText("#8b5cf6"));
-    await waitFor(() => expect(choices).toEqual([{ status: "answer", color: "#8b5cf6" }]));
+    expect(slot.queryByRole("button", { name: "Цвета" })).toBeNull();
+    expect(slot.queryByLabelText("#8b5cf6")).toBeNull();
   } finally { slot.lifecycle.unmount(); }
+});
+
+it("edits and resets a saved status color from plugin settings without loading watches", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  const section = app.settingsSections.find(s => s.title === "Цвета статусов")!;
+  let resolved: string | null = "#14b8a6";
+  const view = renderSlot(section, {}, { rpc: {
+    colors: () => ({ answer: null, attention: null, resolved }),
+    color: input => {
+      const change = contract.color.input.parse(input);
+      expect(change.status).toBe("resolved");
+      resolved = change.color;
+      return null;
+    },
+  } });
+  try {
+    fireEvent.click(await view.findByRole("button", { name: "Решено" }));
+    expect(view.getByLabelText("#14b8a6").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(view.getByLabelText("#8b5cf6"));
+    await waitFor(() => expect(resolved).toBe("#8b5cf6"));
+    await view.behavior.emitRealtime("colors", {});
+    await waitFor(() => expect(view.getByLabelText("#8b5cf6").getAttribute("aria-pressed")).toBe("true"));
+    fireEvent.click(view.getByRole("button", { name: "По умолчанию" }));
+    await waitFor(() => expect(resolved).toBeNull());
+    await view.behavior.emitRealtime("colors", {});
+    await waitFor(() => expect(view.getByText("По умолчанию").getAttribute("aria-pressed")).toBe("true"));
+  } finally { view.lifecycle.unmount(); }
 });
 
 it("confirms removal, keeps the row after an error and retries only the selected watch", async () => {
@@ -43,7 +69,7 @@ it("confirms removal, keeps the row after an error and retries only the selected
     interval: 5, rule: "QA", push: null, until: null, schedule: "schedule", paused: false, timezone: "UTC" };
   let rows = [w, { ...w, id: "b".repeat(20), title: "Дежурство" }];
   const attempts: unknown[] = [];
-  const view = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+  const view = renderSlot(app.navPanels[0]!, { subPath: "list" }, { rpc: {
     list: () => ({ watches: rows, colors: { answer:null, attention:null, resolved:null } }),
     unwatch: input => {
       attempts.push(input);
@@ -203,4 +229,29 @@ it("shows this thread's subscriptions in the card and Info with a check time and
       expect(hidden.inspection.rpcCalls).toHaveLength(0);
     } finally { hidden.lifecycle.unmount(); }
   }
+});
+
+it("opens the board first, keeps read questions active and copies the edited reply before opening its post", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  const item = { id: 42, revision: 1, url: "https://mm.example/team/pl/abc", headline: "Уточнить дату", body: "Ира ждёт дату",
+    source: "#qa", draft: "В четверг", author: "ira", opened: false, updated: 1800000000, chat: "target" };
+  const empty = { total: 0, rows: [] };
+  const view = renderSlot(app.navPanels[0]!, { subPath: "" }, {
+    rpc: { list: () => ({ watches: [], colors: { answer: null, attention: null, resolved: null } }),
+      board: () => ({ answer: { total: 1, rows: [item] }, attention: empty, resolved: empty }),
+      readCard: () => { item.opened = true; return null; } },
+    openUrl: () => true,
+  });
+  try {
+    fireEvent.click(await view.findByText("Ответить"));
+    await waitFor(() => expect(item.opened).toBe(true));
+    fireEvent.change(view.getByLabelText("Черновик ответа"), { target: { value: "В пятницу" } });
+    fireEvent.click(view.getByText("Скопировать и открыть в Mattermost"));
+    await view.findByText("Черновик скопирован");
+    expect(view.inspection.experimental_clipboardWrites).toEqual([{ text: "В пятницу" }]);
+    expect(view.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: item.url });
+    expect(view.getByText("Ждут ответа")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: /Подписки/ }));
+    expect(view.inspection.navigateCalls.some(call => JSON.stringify(call).includes("list"))).toBe(true);
+  } finally { view.lifecycle.unmount(); }
 });

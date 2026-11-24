@@ -22,6 +22,8 @@ db.execute("insert into watches values (?,?)",(row["id"],json.dumps(row)))
 db.commit()`;
   type Handlers = {
     list(): Promise<unknown>;
+    board(input: {answer:number; attention:number; resolved:number}): Promise<unknown>;
+    readCard(input: {id:number; revision:number}): Promise<null>;
     saveConnection(input: { url: string; cookie: string }): Promise<unknown>;
     connection(): Promise<unknown>;
     testConnection(input: { url: string; cookie: string }): Promise<unknown>;
@@ -43,6 +45,12 @@ db.commit()`;
     await expect(handlers.testConnection({ url: "https://other.example", cookie: "" })).rejects.toThrow("Введите cookie");
     const read = async () => contract.list.output.parse(await handlers.list()).watches;
     expect(await read()).toMatchObject([{id,status:"answer",interval:5}]);
+    const offsets = { answer: 0, attention: 0, resolved: 0 };
+    const cards = async () => contract.board.output.parse(await handlers.board(offsets)).answer.rows;
+    const [card] = await cards();
+    expect(card).toMatchObject({ url: "https://mm.example/team/pl/abc", opened: false });
+    await expect(handlers.readCard({ id: card!.id, revision: card!.revision })).resolves.toBeNull();
+    expect((await cards())[0]?.opened).toBe(true);
     const input = {id,interval:12,rule:"Только апрув",push:null,draft:true,until:null};
     await handlers.edit(input);
     expect(await read()).toMatchObject([{...input,status:"answer",schedule:"job"}]);

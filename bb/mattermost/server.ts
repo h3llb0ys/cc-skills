@@ -42,6 +42,18 @@ export default function mattermost(bb: BbPluginApi) {
   }
   bb.agents.contributeInstructions(() => 'When relaying a Mattermost watch notification, keep its summary and permalink. For a notification headed "Уведомление Mattermost · Ждут ответа", "Стоит посмотреть" or "Решено", show the corresponding status as a standalone ::mattermost-status{status="answer"} directive, using attention or resolved for the other two. An ordinary notification needs no directive.');
   bb.rpc.register(contract, {
+    board: offsets => cli(["board", ...Object.entries(offsets).flatMap(([status, offset]) =>
+      offset ? ["--" + status, String(offset)] : [])]),
+    readCard: async ({ id, revision }) => {
+      await cli(["read-card", String(id), String(revision)]);
+      bb.realtime.publish("changed", {});
+      return null;
+    },
+    check: async ({ id }) => {
+      const result = await cli(["check", id]);
+      bb.realtime.publish("changed", {});
+      return result;
+    },
     inbox: ({ chat, before }) => cli(["inbox", "--chat", chat, ...(before ? ["--before", String(before)] : [])]),
     openSummary: async ({ chat, id }) => {
       const detail = await cli(["open-summary", String(id), "--chat", chat]);

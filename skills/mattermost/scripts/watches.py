@@ -13,6 +13,7 @@ from contextlib import closing
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import board
 import inbox
 from client import ApiError, AuthError, Client, SiteMismatch, ordered, timestamp
 
@@ -27,6 +28,7 @@ def connect():
     db = sqlite3.connect(folder / "watches.sqlite3", timeout=60)
     db.execute("CREATE TABLE IF NOT EXISTS watches (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
     inbox.initialize(db)
+    board.initialize(db)
     return db
 
 
@@ -67,7 +69,7 @@ def worker_prompt(state):
             "an important update, resolved when the previously open issue is settled, normal to clear. "
             "For unrelated chatter omit --status to preserve the prior assessment. Classify from the "
             "whole conversation; color does not imply push. Include a draft when draft is true. "
-            "For channels use --awaiting POST_ID for every new personal question and --answered POST_ID "
+            "Use --awaiting POST_ID for every new personal question and --answered POST_ID "
             "only when that particular question was answered. Removed questions are cleared at resolve. Inspect still-open questions via their "
             "permalinks before clearing them. Remaining questions keep answer status. "
             "Ignore questions already answered. For an unmet delay use --recheck-at with the absolute "
@@ -79,6 +81,12 @@ def worker_prompt(state):
             "--post-id (the most relevant reviewed Mattermost post ID) and put a requested reply draft separately "
             "in --draft-file. Keep links to all relevant posts in the summary body; use --push only if the saved push rule matches. "
             "For an expired cookie send one service notice. Otherwise resolve without a message. "
+            "For BB actionable posts also pass --cards-file PATH to resolve. Write a JSON array of "
+            "{post_id,status,headline,body,draft} objects. Use a separate card per question, even in a single thread. "
+            "Write a short Russian action title, one sentence about who needs what, and a reply draft only when requested. "
+            "Use the ORIGINAL question post ID across updates and resolution, not the newest reply. For resolved or "
+            "changed important items inspect board_items in the review. Use --answered for each closed personal question. "
+            "Exclude ordinary chatter from cards. Board triage is independent of the chat notification rule. "
             "This command handles delivery to the configured chat. Do not send elsewhere.")
 
 
@@ -184,7 +192,7 @@ def read_source(client, state):
     return team, posts
 
 
-def tick(state, now):
+def tick(state, now, force=False):
     orca = state["platform"] == "orca"
     idle = 1 if orca else 0  # Orca precheck continues on zero only.
     if state["paused"]:
@@ -197,7 +205,7 @@ def tick(state, now):
     regular_due = now >= state["next"]
     if state.get("lease", 0) > now:
         return idle
-    if not regular_due and (not reminder_due or state["auth_notified"] or state.get("source_problem")):
+    if not force and not regular_due and (not reminder_due or state["auth_notified"] or state.get("source_problem")):
         return idle
     if regular_due:
         interval = state["interval"] * 60
@@ -212,6 +220,8 @@ def tick(state, now):
         state["source_problem"] = str(error)
         return idle
     except AuthError:
+        if force:
+            state["source_problem"] = "Сессия Mattermost истекла. Проверьте cookie в настройках."
         current = state["seen"]
         auth = True
     if auth and state["auth_notified"]:
@@ -247,13 +257,17 @@ def review(state, now):
     result.update(public(state))
     snapshot = versions(posts)
     state["reviewed"] = snapshot
-    if state.get("kind") == "channel":
-        awaiting = set(state.get("awaiting", []))
+    awaiting = set(state.get("awaiting", []))
+    if state.get("kind") == "channel" or awaiting:
         result["awaiting"] = {key: f"{client.base}/{team}/pl/{key}" for key in sorted(awaiting.intersection(snapshot))}
         result["removed_questions"] = sorted(awaiting.difference(snapshot))
+    if state.get("kind") == "channel":
         state["recent_seen"] = {p["id"]: snapshot[p["id"]] for p in posts if p["create_at"] >= state["recent_start"]}
     result.update(changed=[key for key, version in snapshot.items() if state["seen"].get(key) != version],
                   recheck_at=state.get("recheck"), posts=client.render(team, posts))
+    if state["platform"] == "bb":
+        state["board_context"] = {p["id"]: dict(author=p.get("author", ""), message=p.get("message", "")[:1000])
+                                  for p in result["posts"]}
     return result
 
 
@@ -313,9 +327,15 @@ def handle(args):
         if args.action == "watch" and args.url == "list":
             states = (json.loads(row[0]) for row in db.execute("SELECT data FROM watches"))
             return [public(s) for s in states if not args.platform or s["platform"] == args.platform]
+        if args.action == "board":
+            db.execute("BEGIN")
+            return {status: board.listing(db, status, getattr(args, status)) for status in board.SIGNALS}
         if args.action == "inbox":
             return inbox.listing(db, args.chat, args.before)
         db.execute("BEGIN IMMEDIATE")
+        if args.action == "read-card":
+            updated = db.execute("UPDATE board_cards SET opened=1 WHERE id=? AND revision=?", (args.card, args.revision))
+            return {"matched": bool(updated.rowcount)}
         if args.action == "open-summary":
             return inbox.open_summary(db, args.chat, args.summary)
         now = int(time.time())
@@ -380,6 +400,18 @@ def handle(args):
                     state["push_problem"] = "BB push pending; check delivery channels"
             result = tick(state, now)
             deliver_parent_notices(state)
+        elif args.action == "check":
+            if state["platform"] != "bb":
+                raise ValueError("Only BB subscriptions can be checked here")
+            if state["paused"] or (state["until"] and now >= state["until"]):
+                raise ValueError("Наблюдение завершено")
+            if state.get("lease", 0) > now:
+                return {"outcome": "busy"}
+            tick(state, now, force=True)
+            if state.get("source_problem"):
+                result = {"outcome": "failed", "problem": state["source_problem"]}
+            else:
+                result = {"outcome": "reviewing" if state.get("lease", 0) > now else "quiet"}
         elif args.action == "edit":
             if state["platform"] != "bb" or state["paused"]:
                 raise ValueError("Only active BB subscriptions can be edited here")
@@ -413,10 +445,13 @@ def handle(args):
                 except subprocess.CalledProcessError:
                     if any(row["id"] == state["schedule"] for row in schedules(state)):
                         raise
+            board.discard(db, args.id)
             db.execute("DELETE FROM watches WHERE id=?", (args.id,))
             return {"stopped": args.id, "removed_schedule": state["schedule"]}
         elif args.action == "review":
             result = review(state, now)
+            if state["platform"] == "bb" and not result.get("idle") and not state.get("auth"):
+                result["board_items"] = board.active_items(db, args.id)
         elif args.action == "resolve":
             if state["paused"] or (state["until"] and state["until"] <= now):
                 raise ValueError("This watch has ended")
@@ -440,8 +475,10 @@ def handle(args):
             if not state["auth"]:
                 status = args.status
                 event_status = status or "normal"
-                if state.get("kind") == "channel":
-                    awaiting = set(state.get("awaiting", []))
+                previous = set(state.get("awaiting", []))
+                closed = set()
+                if state.get("kind") == "channel" or args.awaiting or args.answered or previous:
+                    awaiting = previous.copy()
                     if set(args.awaiting) - state["reviewed"].keys() or set(args.answered) - awaiting:
                         raise ValueError("Question IDs must belong to the reviewed batch or open questions")
                     if set(args.awaiting) - awaiting:
@@ -449,7 +486,8 @@ def handle(args):
                     elif args.answered and not status:
                         event_status = "resolved"
                     removed = awaiting.difference(state["reviewed"])
-                    awaiting.difference_update(removed, args.answered)
+                    closed = removed.union(args.answered)
+                    awaiting.difference_update(closed)
                     awaiting.update(args.awaiting)
                     if awaiting:
                         status = "answer"
@@ -460,6 +498,8 @@ def handle(args):
                     elif removed and status is None:
                         status = "normal"
                     state["awaiting"] = sorted(awaiting)
+                if state["platform"] == "bb":
+                    board.reconcile(db, state, args, message, draft, headline, now, closed, previous)
                 if status is not None:
                     state["status"] = status
             recheck = args.recheck_at
@@ -477,6 +517,7 @@ def handle(args):
                         recent[key] = state["reviewed"][key]
                 state["reviewed"] = recent
             state.pop("recent_seen", None)
+            state.pop("board_context", None)
             if message:
                 if state["until"] and time.time() >= state["until"]:
                     raise ValueError("This watch has ended")

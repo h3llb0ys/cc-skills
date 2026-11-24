@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { experimental_useSidebarThreads, experimental_Icon as Icon, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
-import { ColorPalette } from "../../shared-ui/color-palette";
-import { contract, defaults, labels, type Signal, type Watch } from "../contract";
-import { type Colors, Marker } from "./status";
+import { contract, defaults, type Watch } from "../contract";
+import { checkTime } from "../time";
+import { CheckWatch } from "./check-watch";
+import { Marker } from "./status";
 import { useSubscriptions } from "../hooks/use-subscriptions";
 
 type Detail = { kind: "edit" | "open" | "remove"; id: string } | null;
@@ -77,27 +78,15 @@ function RemoveWatch({ watch, cancel, removed }: { watch: Watch; cancel(): void;
   </div>;
 }
 
-function Palette({ colors }: { colors: Colors }) {
-  const rpc = useRpc<typeof contract>();
-  const [selected, select] = useState<Signal>("answer");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  return <div className="mm-sheet"><div className="mm-tabs" aria-label="Цвет статуса">
-    {(Object.keys(labels) as Signal[]).map(s => <button key={s} aria-pressed={s === selected} onClick={() => select(s)}>
-      <Marker status={s} colors={colors} /></button>)}
-  </div><fieldset disabled={busy}><ColorPalette color={colors[selected]} commitCustomColor onChange={async color => {
-    setBusy(true);
-    try { await rpc.call("color", { status: selected, color }); setError(""); }
-    catch (cause) { setError(String(cause)); } finally { setBusy(false); }
-  }} /></fieldset>{error && <p role="alert">{error}</p>}</div>;
+export function Subscriptions({ threadId }: { threadId: string }) {
+  const query = useSubscriptions();
+  return <SubscriptionList query={query} threadId={threadId} />;
 }
 
-export function Subscriptions({ threadId }: { threadId?: string }) {
+export function SubscriptionList({ query, threadId }: { query: ReturnType<typeof useSubscriptions>; threadId?: string }) {
   const nav = useBbNavigate();
   const { threads } = experimental_useSidebarThreads();
-  const query = useSubscriptions();
   const [grouped, setGrouped] = useState(false);
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const [detail, setDetail] = useState<Detail>(null);
   const [error, setError] = useState("");
   const rows = (query.data?.watches ?? []).filter(w => !threadId || w.chat === threadId);
@@ -122,11 +111,13 @@ export function Subscriptions({ threadId }: { threadId?: string }) {
           <Marker status={w.status} colors={colors} /></span>
         <span className="mm-meta">{w.channel && `#${w.channel} · `}{w.interval} мин
           {!grouped && !threadId && ` · BB: ${names.get(w.chat) ?? w.chat}`}
+          {w.last_checked_at && " · Проверено " + checkTime.format(w.last_checked_at * 1000)}
           {w.paused ? " · Завершено" : !w.schedule ? " · Без расписания" : ""}</span>
         {threadId && <span className="mm-meta">{w.destination === "shared" ? "Общий сабтред сводок" : "Этот чат"}</span>}
         {w.source_problem && <span role="alert">{w.source_problem}</span>}
         {w.push_problem && <span className="mm-meta">Push ожидает доставки</span>}
       </button>
+      <CheckWatch watch={w} />
       <button className="mm-icon" disabled={!!w.source_problem} title="Открыть в Mattermost" aria-label={`Открыть в Mattermost: ${title}`}
         onClick={() => { setError(""); setDetail(selected === "open" ? null : { kind: "open", id: w.id }); }}><Icon name="ExternalLink" className="mm-action-glyph" aria-hidden /></button>
       <button className="mm-icon" title="Настроить подписку" aria-label={`Настройки: ${title}`}
@@ -147,15 +138,14 @@ export function Subscriptions({ threadId }: { threadId?: string }) {
       {selected === "edit" && !w.paused && <WatchEditor watch={w} close={() => { setDetail(null); void query.refetch(); }} />}
     </div>;
   }
-  return <section className={threadId ? "mm-ui mm-widget" : "mm-ui mm-panel"}>
-    <header>{threadId ? <button onClick={() => nav.toPluginPanel("subscriptions")}>Все подписки</button>
-      : <><h2>Подписки Mattermost</h2><button aria-expanded={paletteOpen} onClick={() => setPaletteOpen(!paletteOpen)}>Цвета</button></>}
+  return <section className={threadId ? "mm-ui mm-widget" : "mm-ui"}>
+    <header>{threadId ? <button onClick={() => nav.toPluginPanel("subscriptions", { subPath: "list" })}>Все подписки</button>
+      : null}
     </header>
     {query.error && <div role="alert">Ошибка загрузки подписок <button onClick={() => void query.refetch()}>Повторить</button></div>}
     <>
       {!threadId && <div className="mm-tabs"><button aria-pressed={!grouped} onClick={() => setGrouped(false)}>Список подписок</button>
         <button aria-pressed={grouped} onClick={() => setGrouped(true)}>По тредам BB</button></div>}
-      {paletteOpen && <Palette colors={colors} />}
       {!rows.length && !query.error && <p>{query.isLoading ? "Загрузка…" : "Подписок пока нет. Отправьте в BB-тред ссылку Mattermost и напишите «следи»."}</p>}
       {grouped ? [...groups].map(([id, items]) => <details key={id} open><summary>{names.get(id) ?? id} · {items.length}</summary>{items.map(row)}</details>) : rows.map(row)}
     </>

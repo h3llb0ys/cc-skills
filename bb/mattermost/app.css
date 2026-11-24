@@ -46,3 +46,21 @@
 .mm-inbox a { text-decoration:underline; text-underline-offset:2px }
 .mm-inbox .mm-primary,.mm-inbox [aria-pressed=true] { background:var(--muted); font-weight:600 }
 .mm-inbox .mm-widget { border:0; padding:0 }
+
+.mm-board-section { margin-top:14px }
+.mm-board-section h3 { margin:0 0 5px; font-size:13px }
+.mm-board-section h3 .mm-marker { font-size:inherit }
+.mm-board small,.mm-board time,.mm-check-now small { color:var(--muted-foreground); font-size:11px }
+.mm-board-card { margin-bottom:4px; border:1px solid var(--border); border-radius:6px; padding:8px 10px }
+.mm-board-card p { margin:2px 0; color:var(--muted-foreground); overflow-wrap:anywhere }
+.mm-board-title,.mm-board-meta { display:flex; justify-content:space-between; align-items:baseline; gap:8px }
+.mm-board-title a { overflow-wrap:anywhere }
+.mm-board-title .mm-unread { font-weight:650 }
+.mm-board-title time { flex:none }
+.mm-board-meta { flex-wrap:wrap; align-items:center; gap:3px }
+.mm-board svg { width:14px; height:14px; vertical-align:middle }
+.mm-board-meta .mm-actions { margin:0 }
+.mm-board-meta .mm-actions>* { display:inline-flex; align-items:center; gap:4px; min-height:24px; padding:2px 5px }
+.mm-check-now { display:flex; gap:3px; align-items:center; flex-wrap:wrap }
+.mm-reply { display:grid; gap:4px; justify-items:start; margin:6px 0 }
+.mm-reply textarea { width:100%; min-height:4em; padding:5px; color:inherit; background:var(--background); border:1px solid var(--border); border-radius:4px }

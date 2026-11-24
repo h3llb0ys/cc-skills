@@ -4,6 +4,7 @@ import { contract, defaults, type Summary } from "../contract";
 import { Marker } from "./status";
 import { useSubscriptions, useWatchRefresh } from "../hooks/use-subscriptions";
 import { checkTime } from "../time";
+import { ReplyDraft } from "./reply-draft";
 import { Subscriptions } from "./subscriptions";
 
 type OpenSummary = Summary & { body: string; draft: string };
@@ -62,8 +63,8 @@ function Inbox({ threadId }: { threadId: string }) {
       <SummaryBody body={detail.body} />
       <a href={detail.url} target="_blank" rel="noopener noreferrer">В Mattermost ↗</a>
       {detail.draft && <details><summary>Черновик ответа</summary>
-        <textarea aria-label="Черновик ответа" value={edits[detail.id] ?? detail.draft}
-          onChange={e => setEdits({ ...edits, [detail.id]: e.target.value })} />
+        <ReplyDraft url={detail.url} text={edits[detail.id] ?? detail.draft}
+          update={text => setEdits({ ...edits, [detail.id]: text })} />
       </details>}
       <button onClick={() => setDetail(null)}>← Назад</button>
     </article> : page === "subscriptions" ? <Subscriptions threadId={threadId} /> : page === "history" ? <>

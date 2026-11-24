@@ -82,6 +82,12 @@ def parser():
     p.add_argument("--timezone", type=zone)
     p.add_argument("--until", type=instant, help="end time in ISO 8601 with offset")
     p.add_argument("--destination", choices=["chat", "shared"])
+    p = commands.add_parser("board")
+    for status in ("answer", "attention", "resolved"):
+        p.add_argument("--" + status, type=positive, default=0)
+    p = commands.add_parser("read-card")
+    p.add_argument("card", type=positive)
+    p.add_argument("revision", type=positive)
     for name in ("inbox", "open-summary"):
         p = commands.add_parser(name)
         p.add_argument("--chat", required=True)
@@ -89,7 +95,7 @@ def parser():
             p.add_argument("--before", type=positive)
         else:
             p.add_argument("summary", type=positive)
-    for name in ("unwatch", "enable", "tick", "review", "resolve", "edit"):
+    for name in ("unwatch", "enable", "check", "tick", "review", "resolve", "edit"):
         p = commands.add_parser(name)
         p.add_argument("id", help="local watch ID")
         if name == "unwatch":
@@ -108,6 +114,7 @@ def parser():
             p.add_argument("--answered", action="append", type=mmid, default=[], help="close a previously tracked question")
             p.add_argument("token")
             p.add_argument("--message-file")
+            p.add_argument("--cards-file")
             p.add_argument("--headline")
             p.add_argument("--post-id", type=mmid)
             p.add_argument("--draft-file")
@@ -121,7 +128,7 @@ def main():
     args = parser().parse_args()
     if args.action == "connection":
         result = connection(args.operation, None if args.operation == "status" else json.load(sys.stdin))
-    elif args.action in ("watch", "unwatch", "enable", "tick", "review", "resolve", "edit", "inbox", "open-summary"):
+    elif args.action in ("watch", "unwatch", "enable", "check", "tick", "review", "resolve", "edit", "inbox", "open-summary", "board", "read-card"):
         result = watches.handle(args)
         if args.action == "tick":
             return result
