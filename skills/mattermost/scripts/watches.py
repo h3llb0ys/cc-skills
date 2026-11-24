@@ -13,6 +13,7 @@ from contextlib import closing
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import inbox
 from client import ApiError, AuthError, Client, SiteMismatch, ordered, timestamp
 
 
@@ -25,6 +26,7 @@ def connect():
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     db = sqlite3.connect(folder / "watches.sqlite3", timeout=60)
     db.execute("CREATE TABLE IF NOT EXISTS watches (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+    inbox.initialize(db)
     return db
 
 
@@ -39,7 +41,7 @@ def versions(posts):
 def public(state):
     return {k: v for k, v in state.items()
             if k in ("id", "url", "platform", "chat", "owner", "interval", "rule", "push",
-                     "until", "schedule", "paused", "timezone", "push_problem", "source_problem", "last_checked_at", "kind", "channel", "title", "draft", "status")}
+                     "until", "schedule", "paused", "timezone", "push_problem", "source_problem", "last_checked_at", "destination", "kind", "channel", "title", "draft", "status")}
 
 
 def run(args, stdin=None):
@@ -73,7 +75,9 @@ def worker_prompt(state):
             "reassess the retained context and schedule the earliest remaining unanswered deadline. "
             f"Run {cli} resolve {state['id']} TOKEN, replacing TOKEN with the reviewed batch token. "
             "For a matching event provide the summary in Russian, reason, permalink and requested draft "
-            "via --message-file (use a temporary file); use --push only if the saved push rule matches. "
+            "via --message-file (use a temporary file). For a BB summary also pass --headline (short Russian topic), "
+            "--post-id (the most relevant reviewed Mattermost post ID) and put a requested reply draft separately "
+            "in --draft-file. Keep links to all relevant posts in the summary body; use --push only if the saved push rule matches. "
             "For an expired cookie send one service notice. Otherwise resolve without a message. "
             "This command handles delivery to the configured chat. Do not send elsewhere.")
 
@@ -99,15 +103,16 @@ def schedules(state):
     return data if bb else data["result"]["automations"]
 
 
+def matching_schedules(state):
+    return [row for row in schedules(state) if row["name"] == "mm-watch-" + state["id"]]
+
+
 def enable(state):
     if state["paused"]:
         raise ValueError("This watch has ended")
     bb = state["platform"] == "bb"
 
-    def matches():
-        return [row for row in schedules(state) if row["name"] == "mm-watch-" + state["id"]]
-
-    found = matches()
+    found = matching_schedules(state)
     if len(found) == 1:
         existing = found[0]["id"]
         cmd = cli_command() + " tick " + state["id"]
@@ -119,7 +124,7 @@ def enable(state):
             run(["orca", "automations", "edit", existing, "--enabled", "--precheck", cmd, "--prompt", worker_prompt(state)])
     if not found:
         run(registration(state))
-        found = matches()
+        found = matching_schedules(state)
     if len(found) != 1:
         raise ValueError("Cannot uniquely identify native schedule; inspect automations before retry")
     state["schedule"] = found[0]["id"]
@@ -252,16 +257,38 @@ def review(state, now):
     return result
 
 
-def notify(state, message):
+def notify(db, state, message, draft, headline, url, status_key):
     labels = {"answer": "Ждут ответа", "attention": "Стоит посмотреть", "resolved": "Решено"}
-    status = labels.get(state.get("status")) if not state.get("auth") else None
+    status = labels.get(status_key)
     heading = "Уведомление Mattermost" + (f" · {status}" if status else "")
     body = f"Покажи владельцу это уведомление Mattermost как цитату.\n\n{heading}\n{message}"
     if state["platform"] == "bb":
+        body += f"\n\n{state.get('title') or 'Mattermost'} · {url}"
+    if draft:
+        body += "\n\nЧерновик ответа\n" + draft
+    if state["platform"] == "bb":
+        if state.get("destination") == "shared" and not state.get("auth"):
+            child = inbox.deliver_to_child(db, state, body, run)
+            if status_key == "answer":
+                # The full summary has already reached the child. A parent nudge
+                # must never cause it to be sent a second time.
+                state.setdefault("parent_notices", []).append(f"Ждут твоего ответа · {headline}\n{url}\nСводка: @thread:{child}")
+            return
         run(["bb", "thread", "tell", state["chat"], "--mode", "queue", "--message-file", "-"], body)
     else:
         run(["orca", "orchestration", "send", "--to", "bot:" + state["owner"], "--chat", state["chat"],
              "--type", "handoff", "--subject", "Mattermost", "--body-file", "-"], body)
+
+
+def deliver_parent_notices(state):
+    if state["paused"] or (state["until"] and time.time() >= state["until"]):
+        state.pop("parent_notices", None)
+    if state.get("parent_notices"):
+        try:
+            run(["bb", "thread", "tell", state["chat"], "--mode", "queue", "--message-file", "-"], "\n\n".join(state["parent_notices"]))
+            state.pop("parent_notices")
+        except (OSError, subprocess.SubprocessError):
+            pass  # Retry the parent notice on the next scheduler heartbeat.
 
 
 def pause(state):
@@ -286,7 +313,11 @@ def handle(args):
         if args.action == "watch" and args.url == "list":
             states = (json.loads(row[0]) for row in db.execute("SELECT data FROM watches"))
             return [public(s) for s in states if not args.platform or s["platform"] == args.platform]
+        if args.action == "inbox":
+            return inbox.listing(db, args.chat, args.before)
         db.execute("BEGIN IMMEDIATE")
+        if args.action == "open-summary":
+            return inbox.open_summary(db, args.chat, args.summary)
         now = int(time.time())
         if args.action == "watch":
             args.rule = (args.rule or "").strip()
@@ -294,6 +325,8 @@ def handle(args):
                 raise ValueError("watch needs --platform --owner --chat --interval --rule --timezone")
             if args.platform == "bb" and not args.environment:
                 raise ValueError("Specify the BB environment on the scheduler host")
+            if args.platform == "orca" and args.destination == "shared":
+                raise ValueError("Shared summary threads require BB")
             if args.platform == "orca" and args.push:
                 raise ValueError("System push is available for BB. For Orca select chat delivery.")
             if args.until and args.until <= now:
@@ -321,6 +354,7 @@ def handle(args):
             else:
                 state = dict(id=key, seen=versions(posts), schedule=None, auth_notified=False, paused=False,
                              window_start=posts[0]["create_at"] if posts else now * 1000)
+            state["destination"] = args.destination or state.get("destination", "chat")
             state.update(last_checked_at=int(time.time()), kind=kind, title=args.title or title, channel=channel_name, draft=args.draft,
                          url=url, owner=args.owner, chat=args.chat, platform=args.platform,
                          interval=args.interval, timezone=args.timezone, environment=args.environment,
@@ -345,11 +379,14 @@ def handle(args):
                 except (OSError, subprocess.SubprocessError):
                     state["push_problem"] = "BB push pending; check delivery channels"
             result = tick(state, now)
+            deliver_parent_notices(state)
         elif args.action == "edit":
             if state["platform"] != "bb" or state["paused"]:
                 raise ValueError("Only active BB subscriptions can be edited here")
             if not args.rule.strip() or (args.until is not None and args.until <= now):
                 raise ValueError("Check rule and end time")
+            if args.destination:
+                state["destination"] = args.destination
             state.update(interval=args.interval, rule=args.rule, push=args.push, draft=args.draft,
                          until=args.until, lease=0, token=None, next=now, recheck=now)
             if not args.push:
@@ -359,6 +396,14 @@ def handle(args):
         elif args.action == "enable":
             result = enable(state)
         elif args.action == "unwatch":
+            if args.platform and state["platform"] != args.platform:
+                raise ValueError("Подписка принадлежит другой платформе")
+            if not state["schedule"]:
+                matches = matching_schedules(state)
+                if len(matches) > 1:
+                    raise ValueError("Cannot uniquely identify native schedule; inspect automations before retry")
+                if matches:
+                    state["schedule"] = matches[0]["id"]
             if state["schedule"]:
                 try:
                     if state["platform"] == "bb":
@@ -380,16 +425,29 @@ def handle(args):
             if args.recheck_at and args.recheck_at <= now:
                 raise ValueError("--recheck-at must be in the future")
             message = Path(args.message_file).read_text().strip() if args.message_file else ""
+            draft = Path(args.draft_file).read_text().strip() if args.draft_file and state.get("draft") else ""
+            headline = (args.headline or (message.splitlines() or [""])[0]).strip()[:160]
+            url = state["url"]
+            if args.post_id:
+                if args.post_id not in state["reviewed"]:
+                    raise ValueError("Post must belong to the reviewed snapshot")
+                url = url.rsplit("/", 2)[0] + "/pl/" + args.post_id
+            event_status = "normal"
             if state["auth"] and not message:
                 raise ValueError("An expired cookie needs one notice")
             if args.push and not (state["platform"] == "bb" and state["push"] and message):
                 raise ValueError("Push requires an enabled BB watch and a message")
             if not state["auth"]:
                 status = args.status
+                event_status = status or "normal"
                 if state.get("kind") == "channel":
                     awaiting = set(state.get("awaiting", []))
                     if set(args.awaiting) - state["reviewed"].keys() or set(args.answered) - awaiting:
                         raise ValueError("Question IDs must belong to the reviewed batch or open questions")
+                    if set(args.awaiting) - awaiting:
+                        event_status = "answer"
+                    elif args.answered and not status:
+                        event_status = "resolved"
                     removed = awaiting.difference(state["reviewed"])
                     awaiting.difference_update(removed, args.answered)
                     awaiting.update(args.awaiting)
@@ -422,20 +480,28 @@ def handle(args):
             if message:
                 if state["until"] and time.time() >= state["until"]:
                     raise ValueError("This watch has ended")
-                notify(state, message)
+                if state["platform"] == "bb":
+                    inbox.record(db, state, headline, message, draft, url, event_status, now)
+                notify(db, state, message, draft, headline, url, event_status)
             state.update(seen=state["reviewed"], token=None, lease=0, reviewed=None,
                          auth_notified=state["auth"], pending_push=args.push or state.get("pending_push", False),
                          recheck=recheck)
-            if args.push:
-                # Commit chat delivery before trying the independent push channel.
+            if args.push or state.get("parent_notices"):
+                # Commit the summary before attempting independent notifications.
                 save(db, args.id, state)
                 db.commit()
                 db.execute("BEGIN IMMEDIATE")
                 latest = db.execute("SELECT data FROM watches WHERE id=?", (args.id,)).fetchone()
                 if latest:
                     current = json.loads(latest[0])
-                    if current.get("pending_push"):
-                        send_pending_push(db, current)
+                    deliver_parent_notices(current)
+                    save(db, args.id, current)
+                    if args.push and current.get("pending_push"):
+                        try:
+                            send_pending_push(db, current)
+                        except (OSError, subprocess.SubprocessError):
+                            db.commit()  # Preserve the parent receipt even if push must retry.
+                            raise
                 return None
         save(db, args.id, state)
         return result

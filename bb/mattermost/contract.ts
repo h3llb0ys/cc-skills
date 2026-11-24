@@ -13,6 +13,7 @@ const url = z.url({ protocol: /^https$/ }).refine(value => {
 const settings = z.object({
   interval: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   rule: z.string().trim().min(1), push: z.string().nullable(), draft: z.boolean().default(false),
+  destination: z.enum(["chat", "shared"]).optional(),
   until: z.number().int().nullable(),
 });
 export const watch = settings.extend({
@@ -28,12 +29,24 @@ export type Watch = z.infer<typeof watch>;
 export const palette = z.object({ answer: color.nullable(), attention: color.nullable(), resolved: color.nullable() });
 const credentials = z.object({ url: z.string().max(4096), cookie: z.string().max(65536) });
 const connectionState = z.object({ url: z.string(), hasCookie: z.boolean(), needsRepair: z.boolean().optional() });
+const summary = z.object({
+  id: z.number().int().positive(), headline: z.string(), source: z.string(), url,
+  status: z.union([signal, z.literal("normal")]), created: z.number().int(), opened: z.number().int(),
+});
+const thread = z.string().min(1);
+const cursor = z.number().int().positive();
+export type Summary = z.infer<typeof summary>;
 export const contract = defineRpcContract({
+  inbox: { input: z.object({ chat: thread, before: cursor.optional() }), output: z.object({
+    rows: z.array(summary), latest: summary.nullable(), unread: z.number(), more: z.boolean(), child: z.string().nullable(),
+  }) },
+  openSummary: { input: z.object({ chat: thread, id: cursor }), output: summary.extend({ body: z.string(), draft: z.string() }) },
   connection: { input: z.null(), output: connectionState },
   saveConnection: { input: credentials, output: connectionState },
   testConnection: { input: credentials, output: z.object({ username: z.string() }) },
   list: { input: z.null(), output: z.object({ watches: z.array(watch), colors: palette }) },
   colors: { input: z.null(), output: palette },
+  unwatch: { input: z.object({ id }), output: z.null() },
   edit: { input: settings.extend({ id }), output: z.null() },
   color: { input: z.object({ status: signal, color: color.nullable() }), output: z.null() },
 });

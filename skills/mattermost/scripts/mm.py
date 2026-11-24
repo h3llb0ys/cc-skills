@@ -81,10 +81,21 @@ def parser():
     p.add_argument("--push", help="BB push condition")
     p.add_argument("--timezone", type=zone)
     p.add_argument("--until", type=instant, help="end time in ISO 8601 with offset")
+    p.add_argument("--destination", choices=["chat", "shared"])
+    for name in ("inbox", "open-summary"):
+        p = commands.add_parser(name)
+        p.add_argument("--chat", required=True)
+        if name == "inbox":
+            p.add_argument("--before", type=positive)
+        else:
+            p.add_argument("summary", type=positive)
     for name in ("unwatch", "enable", "tick", "review", "resolve", "edit"):
         p = commands.add_parser(name)
         p.add_argument("id", help="local watch ID")
+        if name == "unwatch":
+            p.add_argument("--platform", choices=["bb", "orca"])
         if name == "edit":
+            p.add_argument("--destination", choices=["chat", "shared"])
             p.add_argument("--interval", type=positive, required=True)
             p.add_argument("--rule", required=True)
             p.add_argument("--push")
@@ -97,6 +108,9 @@ def parser():
             p.add_argument("--answered", action="append", type=mmid, default=[], help="close a previously tracked question")
             p.add_argument("token")
             p.add_argument("--message-file")
+            p.add_argument("--headline")
+            p.add_argument("--post-id", type=mmid)
+            p.add_argument("--draft-file")
             p.add_argument("--push", action="store_true")
             p.add_argument("--recheck-at", type=instant)
     return cli
@@ -107,7 +121,7 @@ def main():
     args = parser().parse_args()
     if args.action == "connection":
         result = connection(args.operation, None if args.operation == "status" else json.load(sys.stdin))
-    elif args.action in ("watch", "unwatch", "enable", "tick", "review", "resolve", "edit"):
+    elif args.action in ("watch", "unwatch", "enable", "tick", "review", "resolve", "edit", "inbox", "open-summary"):
         result = watches.handle(args)
         if args.action == "tick":
             return result

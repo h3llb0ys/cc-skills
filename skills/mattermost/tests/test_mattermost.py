@@ -153,6 +153,7 @@ class WatchTests(unittest.TestCase):
         self.client.render.side_effect = lambda team, rows: rows
         calls = patch.object(watches, "run")
         self.calls = calls.start()
+        self.calls.return_value = subprocess.CompletedProcess([], 0, "[]")
         self.addCleanup(calls.stop)
         self.parser = mm.parser()
         self.options = ["watch", URL + ROOT, "--platform", "bb", "--chat", "target", "--environment", "env",
@@ -229,7 +230,11 @@ class WatchTests(unittest.TestCase):
         self.client.channel.assert_called_once()
         self.client.posts_by_channel_id.assert_called_with(CHANNEL, 1, None)
         older, newer = batch["changed"][:2]
-        self.invoke("resolve", key, batch["token"], "--awaiting", older, "--awaiting", newer)
+        message = Path(self.folder.name) / "summary"
+        message.write_text("QA")
+        self.invoke("resolve", key, batch["token"], "--awaiting", older, "--awaiting", newer,
+                    "--status", "attention", "--message-file", str(message))
+        self.assertEqual(self.invoke("inbox", "--chat", "target")["latest"]["status"], "answer")
         self.rows.append(post(OTHER, 300))
         self.now += 300
         self.invoke("tick", key)
@@ -246,7 +251,8 @@ class WatchTests(unittest.TestCase):
         self.invoke("tick", key)
         batch = self.invoke("review", key)
         self.assertEqual(batch["changed"], [older])
-        self.invoke("resolve", key, batch["token"], "--answered", older)
+        self.invoke("resolve", key, batch["token"], "--answered", older, "--message-file", str(message))
+        self.assertEqual(self.invoke("inbox", "--chat", "target")["latest"]["status"], "resolved")
         self.assertEqual(next(w for w in self.invoke("watch", "list") if w["id"] == key)["status"], "resolved")
 
     def test_removed_pinned_question_and_monotonic_channel_window(self):
@@ -527,6 +533,62 @@ class WatchTests(unittest.TestCase):
         self.invoke("tick", self.key)
         self.assertNotIn("source_problem", self.invoke("watch", "list")[0])
 
+    def test_history_survives_unwatch_and_read_is_scoped_to_chat(self):
+        self.invoke(*self.options, "--draft")
+        self.rows.append(post(REPLY, 3, ROOT))
+        self.invoke("tick", self.key)
+        token = self.invoke("review", self.key)["token"]
+        summary = Path(self.folder.name) / "summary"
+        summary.write_text("Есть вопрос про кэш.")
+        draft = Path(self.folder.name) / "draft"
+        draft.write_text("Уточню.")
+        self.invoke("resolve", self.key, token, "--message-file", str(summary), "--draft-file", str(draft),
+                    "--headline", "Кэш", "--post-id", REPLY, "--status", "answer")
+        self.invoke("unwatch", self.key)
+        feed = self.invoke("inbox", "--chat", "target")
+        self.assertEqual(feed["unread"], 1)
+        item = feed["latest"]
+        self.assertEqual((item["headline"], item["url"], item["opened"]), ("Кэш", URL + REPLY, 0))
+        with self.assertRaises(ValueError):
+            self.invoke("open-summary", str(item["id"]), "--chat", "other")
+        opened = self.invoke("open-summary", str(item["id"]), "--chat", "target")
+        self.assertEqual((opened["draft"], opened["body"]), ("Уточню.", "Есть вопрос про кэш."))
+        feed = self.invoke("inbox", "--chat", "target")
+        self.assertEqual((feed["latest"], feed["unread"], feed["rows"][0]["opened"]), (None, 0, 1))
+
+    def test_two_shared_subscriptions_use_one_child_and_retry_parent_notice(self):
+        self.invoke(*self.options, "--destination", "shared")
+        text = Path(self.folder.name) / "summary"
+        text.write_text("QA")
+        self.rows.append(post(REPLY, 3, ROOT))
+        self.invoke("tick", self.key)
+        token = self.invoke("review", self.key)["token"]
+        self.calls.reset_mock()
+        self.calls.side_effect = [subprocess.CompletedProcess([], 0, '{"id":"child"}'),
+                                  subprocess.CalledProcessError(1, "tell")]
+        self.invoke("resolve", self.key, token, "--message-file", str(text), "--status", "answer")
+        self.assertEqual(self.calls.call_count, 2)
+        spawn = self.calls.call_args_list[0].args[0]
+        self.assertEqual(self.calls.call_args.args[0][:4], ["bb", "thread", "tell", "target"])
+        self.assertEqual(spawn[spawn.index("--parent-thread") + 1], "target")
+        self.calls.side_effect = subprocess.CalledProcessError(1, "tell")
+        self.invoke("tick", self.key)
+        self.calls.side_effect = None
+        self.invoke("tick", self.key)
+        self.assertIn("@thread:child", self.calls.call_args.args[1])
+        self.client.thread.side_effect = lambda url: ("team", OTHER, [post(OTHER, 1)] + self.rows)
+        other = self.options.copy()
+        other[1] = URL + OTHER
+        key = self.invoke(*other, "--destination", "shared")["id"]
+        self.rows.append(post("f"*26, 4, OTHER))
+        self.invoke("tick", key)
+        token = self.invoke("review", key)["token"]
+        self.calls.reset_mock()
+        self.calls.side_effect = [subprocess.CompletedProcess([], 0, '[{"id":"child"}]'), None]
+        self.invoke("resolve", key, token, "--message-file", str(text))
+        self.assertEqual(self.calls.call_args.args[0][:4], ["bb", "thread", "tell", "child"])
+        self.assertEqual(self.invoke("inbox", "--chat", "target")["unread"], 2)
+
     def test_inaccessible_source_preserves_cadence_and_catches_up(self):
         for status in (403, 404):
             with self.subTest(status=status):
@@ -543,6 +605,32 @@ class WatchTests(unittest.TestCase):
         self.invoke("tick", self.key)
         self.assertEqual(self.invoke("review", self.key)["changed"], [REPLY])
         self.assertNotIn("source_problem", self.invoke("watch", "list")[0])
+
+    def test_unwatch_recovers_schedule_after_interrupted_enable(self):
+        empty = subprocess.CompletedProcess([], 0, "[]")
+        self.calls.side_effect = [empty, None, subprocess.CalledProcessError(1, "list")]
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.invoke("enable", self.key)
+        self.assertIsNone(self.invoke("watch", "list")[0]["schedule"])
+        schedules = [{"name": "other", "id": "keep"}, {"name": "mm-watch-" + self.key, "id": "auto"}]
+        self.calls.side_effect = [subprocess.CompletedProcess([], 0, json.dumps(schedules)), None]
+        self.assertEqual(self.invoke("unwatch", self.key)["removed_schedule"], "auto")
+        self.assertEqual(self.calls.call_args.args[0], ["bb", "automation", "delete", "auto", "--project", "project", "--yes"])
+
+    def test_shared_answer_reaches_parent_before_expiry(self):
+        self.invoke(*self.options, "--destination", "shared", "--until", client.timestamp((self.now + 30) * 1000))
+        self.rows.append(post(REPLY, 3, ROOT))
+        self.invoke("tick", self.key)
+        token = self.invoke("review", self.key)["token"]
+        message = Path(self.folder.name) / "summary"
+        message.write_text("QA")
+        self.calls.reset_mock()
+        self.calls.side_effect = [subprocess.CompletedProcess([], 0, '{"id":"child"}'), None]
+        self.invoke("resolve", self.key, token, "--message-file", str(message), "--status", "answer")
+        self.assertIn("@thread:child", self.calls.call_args.args[1])
+        self.now += 60
+        self.invoke("tick", self.key)
+        self.assertEqual(self.calls.call_count, 2)
 
     def test_unwatch_reconciles_failed_native_deletion(self):
         self.calls.side_effect = [

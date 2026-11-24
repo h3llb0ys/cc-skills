@@ -15,7 +15,8 @@
 .mm-meta,.mm-rule { display:block }
 .mm-marker { display:inline-flex; align-items:center; gap:4px; font-size:11px; white-space:nowrap }
 .mm-marker i { width:8px; height:8px; border-radius:50%; box-shadow:0 0 0 1px var(--border) }
-.mm-icon { width:30px; height:30px; border:1px solid var(--border) }
+.mm-icon { display:inline-grid; place-items:center; flex:none; width:30px; height:30px; border:1px solid var(--border) }
+.mm-ui .mm-action-glyph { width:15px; height:15px; stroke-width:1.75 }
 .mm-tabs,.mm-actions { flex-wrap:wrap; margin:5px 0 }
 .mm-ui summary { background:var(--muted); padding:4px 6px; margin-top:5px }
 .mm-sheet { background:var(--card); border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:6px }
@@ -29,6 +30,19 @@
 .mm-context { display:grid; gap:5px; min-width:0; font-size:12px }
 .mm-context-title,.mm-context-meta { display:flex; align-items:center; gap:5px; min-width:0 }
 .mm-context-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-.mm-context-title a { padding:0 3px; color:inherit }
+.mm-context-title a { display:inline-flex; align-items:center; padding:0 3px; color:inherit }
 .mm-context-meta,.mm-context-item small { font-size:11px; color:var(--muted-foreground) }
 .mm-context-meta { flex-wrap:wrap; row-gap:0 }
+
+.mm-inbox { padding:4px 8px; min-width:0 }
+.mm-inbox header,.mm-inbox nav,.mm-event-meta { display:flex; flex-wrap:wrap; align-items:center; gap:5px }
+.mm-inbox small,.mm-event-meta { font-size:11px; color:var(--muted-foreground) }
+.mm-inbox .mm-event { display:grid; justify-items:start; gap:5px; border-top:1px solid var(--border); padding-top:6px }
+.mm-inbox .mm-summary-body { margin:0; white-space:pre-wrap; overflow-wrap:anywhere }
+.mm-inbox details,.mm-inbox textarea,.mm-history-row { width:100% }
+.mm-inbox textarea,.mm-fields select { background:var(--background); color:inherit; border:1px solid var(--border); padding:4px }
+.mm-inbox textarea { min-height:4em }
+.mm-history-row { display:block; text-align:left; border-top:1px solid var(--border) }
+.mm-inbox a { text-decoration:underline; text-underline-offset:2px }
+.mm-inbox .mm-primary,.mm-inbox [aria-pressed=true] { background:var(--muted); font-weight:600 }
+.mm-inbox .mm-widget { border:0; padding:0 }

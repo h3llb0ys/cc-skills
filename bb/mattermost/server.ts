@@ -42,6 +42,12 @@ export default function mattermost(bb: BbPluginApi) {
   }
   bb.agents.contributeInstructions(() => 'When relaying a Mattermost watch notification, keep its summary and permalink. For a notification headed "Уведомление Mattermost · Ждут ответа", "Стоит посмотреть" or "Решено", show the corresponding status as a standalone ::mattermost-status{status="answer"} directive, using attention or resolved for the other two. An ordinary notification needs no directive.');
   bb.rpc.register(contract, {
+    inbox: ({ chat, before }) => cli(["inbox", "--chat", chat, ...(before ? ["--before", String(before)] : [])]),
+    openSummary: async ({ chat, id }) => {
+      const detail = await cli(["open-summary", String(id), "--chat", chat]);
+      bb.realtime.publish("changed", {});
+      return detail;
+    },
     connection: () => cli(["connection", "status"]),
     saveConnection: input => cli(["connection", "save"], input),
     testConnection: input => cli(["connection", "test"], input),
@@ -50,8 +56,14 @@ export default function mattermost(bb: BbPluginApi) {
       const [watches, currentColors] = await Promise.all([cli(["watch", "list", "--platform", "bb"]), colors()]);
       return { watches, colors: currentColors };
     },
+    unwatch: async ({ id }) => {
+      await cli(["unwatch", id, "--platform", "bb"]);
+      bb.realtime.publish("changed", {});
+      return null;
+    },
     edit: async input => {
       const args = ["edit", input.id, "--interval", String(input.interval), "--rule=" + input.rule];
+      if (input.destination) args.push("--destination", input.destination);
       if (input.push) args.push("--push=" + input.push);
       if (input.draft) args.push("--draft");
       if (input.until !== null) args.push("--until", new Date(input.until * 1000).toISOString());

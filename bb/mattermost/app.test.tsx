@@ -37,6 +37,37 @@ it("navigates from the registry, edits conditions and applies the shared color p
   } finally { slot.lifecycle.unmount(); }
 });
 
+it("confirms removal, keeps the row after an error and retries only the selected watch", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  const w = { id: "a".repeat(20), chat: "t", owner: "p", url: "https://mm.example/team/pl/a", title: "Релиз",
+    interval: 5, rule: "QA", push: null, until: null, schedule: "schedule", paused: false, timezone: "UTC" };
+  let rows = [w, { ...w, id: "b".repeat(20), title: "Дежурство" }];
+  const attempts: unknown[] = [];
+  const view = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    list: () => ({ watches: rows, colors: { answer:null, attention:null, resolved:null } }),
+    unwatch: input => {
+      attempts.push(input);
+      if (attempts.length === 1) throw Error("BB временно недоступен");
+      rows = rows.filter(row => row.id !== w.id);
+      return null;
+    },
+  } });
+  try {
+    const trash = await view.findByRole("button", { name: "Удалить подписку: Релиз" });
+    fireEvent.click(trash);
+    await view.findByText("Удалить подписку «Релиз» и её автоматизацию в BB?");
+    fireEvent.click(view.getByText("Отмена"));
+    expect(attempts).toEqual([]);
+    fireEvent.click(trash);
+    fireEvent.click(view.getByText("Удалить"));
+    await view.findByRole("alert");
+    fireEvent.click(view.getByText("Удалить"));
+    await waitFor(() => expect(view.queryByText("Релиз")).toBeNull());
+    expect(attempts).toEqual([{ id: w.id }, { id: w.id }]);
+    expect(view.getByText("Дежурство")).toBeTruthy();
+  } finally { view.lifecycle.unmount(); }
+});
+
 it("reads old subscriptions without inventing an alert and rejects foreign URL schemes", () => {
   const data = { id: "a".repeat(20), url: "https://mm.example/team/pl/abc", chat:"t", owner:"p", interval:5,
     rule:"QA", push:null, until:null, schedule:null, paused:false, timezone:"UTC" };
@@ -60,24 +91,56 @@ it("renders a historical notification with its status and the configured palette
   } finally { rendered.lifecycle.unmount(); }
 });
 
-it("shows only the current chat's subscriptions in its collapsed widget", async () => {
+it("opens the newest unread summary, then history, draft and current-thread settings", async () => {
   const app = await loadPluginApp(() => import("./app"));
-  const base = { id: "a".repeat(20), chat:"target", owner:"p", title:"Своя ветка",
-    url:"https://mm.example/team/pl/abc", interval:5, rule:"QA", until:null, push:null,
-    schedule:null, paused:false, timezone:"UTC" };
+  const w = { id: "a".repeat(20), chat:"target", owner:"p", title:"Своя ветка", url:"https://mm.example/team/pl/abc",
+    interval:5, rule:"Уведомляй о QA", until:null, push:null, schedule:null, paused:false, timezone:"UTC" };
+  const item = { id: 1, headline: "Когда обновляется кэш?", source: "Канал", status: "attention", created: 1800000000, url: w.url };
+  let opened = 0;
   const rendered = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
     composer: { scope: { kind:"thread", threadId:"target" } },
-    rpc: { list: () => ({ watches:[base, {...base, id:"b".repeat(20), chat:"other", title:"Чужая ветка"}],
-      colors:{answer:null,attention:null,resolved:null} }) },
+    rpc: {
+      list: () => ({ watches: [w, { ...w, chat:"other", title:"Чужая ветка" }], colors:{answer:null,attention:null,resolved:null} }),
+      inbox: () => ({ rows:[{...item, opened}], latest: opened ? null : {...item,opened}, unread:1-opened, more:false, child:null }),
+      openSummary: input => { expect(input).toEqual({chat:"target",id:1}); opened=1; return {...item,opened,body:"Вопрос о кэше",draft:"Уточню у команды."}; },
+    },
   });
   try {
-    const toggle = await rendered.findByText(/Наблюдение Mattermost · 1/);
-    expect(rendered.queryByText("Своя ветка")).toBeNull();
-    fireEvent.click(toggle);
-    expect(rendered.getByText("Своя ветка")).toBeTruthy();
+    fireEvent.click(await rendered.findByText("Открыть сводку →"));
+    await rendered.findByText("Вопрос о кэше");
+    fireEvent.click(rendered.getByText("Черновик ответа"));
+    expect((rendered.getByLabelText("Черновик ответа") as HTMLTextAreaElement).value).toBe("Уточню у команды.");
+    fireEvent.click(rendered.getByText("← Назад"));
+    await rendered.findByText("Все сводки просмотрены");
+    fireEvent.click(rendered.getByRole("button", { name: "Сводки" }));
+    await rendered.findByText(item.headline);
+    fireEvent.click(rendered.getByText("Подписки · 1"));
+    const settings = await rendered.findByRole("button", { name: "Настройки: Своя ветка" });
+    for (const [label, icon] of [["Открыть в Mattermost: Своя ветка", "ExternalLink"], ["Настройки: Своя ветка", "Settings"], ["Удалить подписку: Своя ветка", "Trash2"]]) {
+      const button = rendered.getByRole("button", { name: label });
+      expect(button.querySelector(".mm-action-glyph")?.getAttribute("data-icon")).toBe(icon);
+    }
+    fireEvent.click(settings);
     expect(rendered.queryByText("Чужая ветка")).toBeNull();
-    expect(rendered.container.querySelector(".mm-marker")).toBeNull();
+    expect((rendered.getByLabelText("Куда присылать") as HTMLSelectElement).value).toBe("chat");
+    expect((rendered.getByLabelText("Полное правило") as HTMLTextAreaElement).value).toBe(w.rule);
   } finally { rendered.lifecycle.unmount(); }
+});
+
+it("explains how to subscribe when only summary history remains", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  const view = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
+    composer: { scope: { kind: "thread", threadId: "target" } },
+    rpc: {
+      list: () => ({ watches: [], colors: { answer: null, attention: null, resolved: null } }),
+      inbox: () => ({ rows: [{ id: 1, source: "QA", headline: "Релиз", url: "https://mm.example/team/pl/a",
+        status: "normal", created: 1800000000, opened: 1 }], more: false, unread: 0, latest: null, child: null }),
+    },
+  });
+  try {
+    fireEvent.click(await view.findByText("Подписки · 0"));
+    await view.findByText(/Подписок пока нет/);
+  } finally { view.lifecycle.unmount(); }
 });
 
 it("checks the entered cookie before saving and can retest the stored session", async () => {
@@ -129,6 +192,7 @@ it("shows this thread's subscriptions in the card and Info with a check time and
     try {
       const link = await view.findByLabelText("Открыть в Mattermost: Promo");
       expect(link.getAttribute("href")).toBe(own.url);
+      expect(link.querySelector(".mm-action-glyph")?.getAttribute("data-icon")).toBe("ExternalLink");
       expect(view.queryByText("Other channel")).toBeNull();
       expect(view.getByText("Ждут ответа").querySelector("i")?.style.backgroundColor).toBe("rgb(18, 52, 86)");
       expect(view.container.querySelector("time")?.dateTime).toBe(new Date(own.last_checked_at * 1000).toISOString());
