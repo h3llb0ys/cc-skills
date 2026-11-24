@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   definePluginApp, experimental_useRpcQuery, experimental_useSidebarThreads,
-  useBbNavigate, useComposer, useRealtime, useRpc,
+  experimental_InfoSection as InfoSection, useBbNavigate, useComposer, useRealtime, useRpc, useSettings,
 } from "@get-bb/plugin-sdk/app";
 import { ColorPalette } from "../shared-ui/color-palette";
 import "../shared-ui/color-palette.css";
@@ -74,9 +74,7 @@ function Palette({ colors }: { colors: Colors }) {
   }} /></fieldset>{error && <p role="alert">{error}</p>}</div>;
 }
 
-function Subscriptions({ threadId }: { threadId?: string }) {
-  const nav = useBbNavigate();
-  const { threads } = experimental_useSidebarThreads();
+function useSubscriptions() {
   const query = experimental_useRpcQuery({ contract, method: "list", input: null });
   const refresh = useRef(query.refetch);
   refresh.current = query.refetch;
@@ -87,6 +85,13 @@ function Subscriptions({ threadId }: { threadId?: string }) {
     document.addEventListener("visibilitychange", poll);
     return () => { clearInterval(id); document.removeEventListener("visibilitychange", poll); };
   }, []);
+  return query;
+}
+
+function Subscriptions({ threadId }: { threadId?: string }) {
+  const nav = useBbNavigate();
+  const { threads } = experimental_useSidebarThreads();
+  const query = useSubscriptions();
   const [grouped, setGrouped] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -102,10 +107,8 @@ function Subscriptions({ threadId }: { threadId?: string }) {
     groups.get(w.chat)!.push(w);
   }
 
-  function openSource(w: Watch, desktop: boolean) {
-    // The RPC contract accepts HTTPS permalinks only; preserve server subpaths.
-    const url = desktop ? w.url.replace(/^https:/, "mattermost:") : w.url;
-    if (nav.openUrl(url)) { setError(""); setDetail(null); }
+  function openSource(w: Watch) {
+    if (nav.openUrl(w.url)) { setError(""); setDetail(null); }
     else setError("Клиент не поддерживает эту ссылку. Откройте в браузере.");
   }
   function row(w: Watch) {
@@ -127,10 +130,15 @@ function Subscriptions({ threadId }: { threadId?: string }) {
       <button className="mm-icon" title="Настройки подписки" aria-label={`Настройки: ${title}`}
         onClick={() => setDetail(selected === "edit" ? null : { kind: "edit", id: w.id })}>⚙</button>
     </div>
-      {selected === "open" && <div className="mm-actions"><button onClick={() => openSource(w, false)}>В браузере ↗</button>
-        <button onClick={() => openSource(w, true)}>В приложении ↗</button>{error && <span role="alert">{error}</span>}</div>}
+      {selected === "open" && <div className="mm-actions"><button onClick={() => openSource(w)}>В браузере ↗</button>
+        <a href={w.url.replace(/^https:/, "mattermost:")} onClick={event => {
+          if (nav.openUrl(event.currentTarget.href)) {
+            event.preventDefault();
+            setDetail(null);
+          }
+        }}>В приложении ↗</a>{error && <span role="alert">{error}</span>}</div>}
       {selected === "edit" && w.paused && <p>Наблюдение завершено · {w.rule}</p>}
-      {selected === "edit" && !w.paused && <WatchEditor watch={w} close={() => { setDetail(null); void refresh.current(); }} />}
+      {selected === "edit" && !w.paused && <WatchEditor watch={w} close={() => { setDetail(null); void query.refetch(); }} />}
     </div>;
   }
   return <section className={threadId ? "mm-ui mm-widget" : "mm-ui mm-panel"}>
@@ -138,7 +146,7 @@ function Subscriptions({ threadId }: { threadId?: string }) {
       {expanded ? "▾" : "▸"} Наблюдение Mattermost · {rows.length}</button><button onClick={() => nav.toPluginPanel("subscriptions")}>Все подписки</button></>
       : <><h2>Подписки Mattermost</h2><button aria-expanded={paletteOpen} onClick={() => setPaletteOpen(!paletteOpen)}>Цвета</button></>}
     </header>
-    {query.error && <div role="alert">Ошибка загрузки подписок <button onClick={() => void refresh.current()}>Повторить</button></div>}
+    {query.error && <div role="alert">Ошибка загрузки подписок <button onClick={() => void query.refetch()}>Повторить</button></div>}
     {(!threadId || expanded) && <>
       {!threadId && <div className="mm-tabs"><button aria-pressed={!grouped} onClick={() => setGrouped(false)}>Список подписок</button>
         <button aria-pressed={grouped} onClick={() => setGrouped(true)}>По тредам BB</button></div>}
@@ -149,11 +157,101 @@ function Subscriptions({ threadId }: { threadId?: string }) {
   </section>;
 }
 
+const checkTime = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+function ThreadSubscriptions({ threadId, info }: { threadId: string; info?: boolean }) {
+  const query = useSubscriptions();
+  if (!query.data) return null;
+  const { watches, colors } = query.data;
+  const rows = watches.filter(w => w.chat === threadId);
+  if (!rows.length) return null;
+  const links = <div className="mm-ui mm-context" aria-label="Подписки Mattermost этого треда">
+    {rows.map(w => {
+      const title = w.title || w.channel || w.url.split("/").pop();
+      const issue = w.source_problem || (w.paused ? "Наблюдение завершено" : !w.schedule ? "Без расписания" : "");
+      return <div key={w.id} className="mm-context-item">
+        <div className="mm-context-title">
+          <span aria-label={w.kind === "channel" ? "Канал" : "Ветка"}>{w.kind === "channel" ? "#" : "↳"}</span>
+          <span className="mm-context-name" title={title}>{title}</span>
+          {!w.source_problem && <a href={w.url} target="_blank" rel="noopener noreferrer" aria-label={`Открыть в Mattermost: ${title}`}>↗</a>}
+        </div>
+        <div className="mm-context-meta">
+          <Marker status={w.status} colors={colors} />
+          {w.last_checked_at === undefined ? <span>Время проверки пока неизвестно</span> :
+            <time dateTime={new Date(w.last_checked_at * 1000).toISOString()}>Проверено {checkTime.format(w.last_checked_at * 1000)}</time>}
+        </div>
+        {issue && <small>{issue}</small>}
+      </div>;
+    })}
+  </div>;
+  return info ? <InfoSection label="Mattermost">{links}</InfoSection> : links;
+}
+
+function ThreadSection({ threadId, info }: { threadId: string; info?: boolean }) {
+  const settings = useSettings();
+  if (settings.isLoading || settings.values?.showThreadSubscriptions === false) return null;
+  return <ThreadSubscriptions key={threadId} threadId={threadId} info={info} />;
+}
+
+function ConnectionSettings() {
+  const rpc = useRpc<typeof contract>();
+  const connection = experimental_useRpcQuery({ contract, method: "connection", input: null });
+  const [editedUrl, setUrl] = useState<string | null>(null);
+  const [cookie, setCookie] = useState("");
+  const [pending, setPending] = useState<"save" | "test" | null>(null);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const url = editedUrl ?? connection.data?.url ?? "";
+  const reuse = !!connection.data?.hasCookie && url.trim().replace(/\/+$/, "") === connection.data.url;
+  async function submit(action: "save" | "test") {
+    setPending(action);
+    setError("");
+    setMessage("");
+    try {
+      if (action === "test") {
+        const result = await rpc.call("testConnection", { url, cookie });
+        setMessage("Соединение установлено · @" + result.username);
+      } else {
+        const result = await rpc.call("saveConnection", { url, cookie });
+        setUrl(result.url);
+        setCookie("");
+        await connection.refetch();
+        setMessage("Подключение сохранено");
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось выполнить запрос");
+    } finally { setPending(null); }
+  }
+  if (connection.error && !connection.data) return <div role="alert">Не удалось загрузить настройки подключения. <button onClick={() => void connection.refetch()}>Повторить</button></div>;
+  if (!connection.data) return <p>Загрузка настроек…</p>;
+  return <form className="mm-ui mm-sheet" onSubmit={e => { e.preventDefault(); void submit("save"); }}>
+    {connection.data.needsRepair && <p role="alert">Проверьте настройки подключения. Введите адрес сервера и cookie заново.</p>}
+    <fieldset disabled={pending !== null} className="mm-fields">
+      <label className="wide">Адрес сервера Mattermost<input type="url" required value={url} placeholder="https://mattermost.example.org"
+        onChange={e => { setUrl(e.target.value); setMessage(""); setError(""); }} /></label>
+      <label className="wide">Cookie<input type="password" autoComplete="new-password" spellCheck={false}
+        placeholder={reuse ? "Сохранена · введите новую для замены" : "MMAUTHTOKEN=…"} value={cookie}
+        onChange={e => { setCookie(e.target.value); setMessage(""); setError(""); }} /></label>
+      <div className="mm-actions wide"><button type="submit" disabled={!url.trim() || (!cookie.trim() && !reuse)}>Сохранить</button>
+        <button type="button" disabled={!url.trim() || (!cookie.trim() && !reuse)} onClick={() => void submit("test")}>
+          {pending === "test" ? "Проверяем…" : "Проверить соединение"}</button></div>
+    </fieldset>
+    {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
+  </form>;
+}
+
 function Widget() {
   const { scope } = useComposer();
   return scope.kind === "thread" ? <Subscriptions key={scope.threadId} threadId={scope.threadId} /> : null;
 }
 export default definePluginApp(app => {
+  app.slots.settingsSection({ id: "connection", title: "Подключение к Mattermost", component: ConnectionSettings });
+  app.slots.experimental_threadContextCardSection({
+    id: "subscriptions", title: "Mattermost", group: "2_changes_mattermost", component: ThreadSection,
+  });
+  app.slots.experimental_threadInfoSection({
+    id: "subscriptions", group: "2_changes_mattermost", component: props => <ThreadSection {...props} info />,
+  });
   app.slots.messageDirective({ id: "mattermost-status", component: MessageStatus });
   app.slots.navPanel({ id: "subscriptions", path: "subscriptions", title: "Mattermost", icon: "MessageSquare", component: () => <Subscriptions /> });
   app.composer.customize({ id: "subscriptions", scopes: ["thread"], banners: [{ id: "watch", chrome: "bare", component: Widget }] });

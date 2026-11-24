@@ -19,7 +19,9 @@ it("navigates from the registry, edits conditions and applies the shared color p
     await slot.findByText("Ждут ответа");
     fireEvent.click(slot.getByText("Релиз"));
     fireEvent.click(slot.getByLabelText("Открыть в Mattermost: Релиз"));
-    fireEvent.click(slot.getByText("В приложении ↗"));
+    const desktop = slot.getByRole("link", { name: "В приложении ↗" });
+    expect(desktop.getAttribute("href")).toBe("mattermost://mm.example/team/pl/abc");
+    fireEvent.click(desktop);
     expect(JSON.stringify(slot.inspection.navigateCalls)).toContain("mattermost://mm.example/team/pl/abc");
     expect(JSON.stringify(slot.inspection.navigateCalls)).toContain("thread1");
     fireEvent.click(slot.getByLabelText("Открыть в Mattermost: Релиз"));
@@ -76,4 +78,65 @@ it("shows only the current chat's subscriptions in its collapsed widget", async 
     expect(rendered.queryByText("Чужая ветка")).toBeNull();
     expect(rendered.container.querySelector(".mm-marker")).toBeNull();
   } finally { rendered.lifecycle.unmount(); }
+});
+
+it("checks the entered cookie before saving and can retest the stored session", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  const section = app.settingsSections.find(s => s.id === "connection")!;
+  let stored = { url: "", hasCookie: false };
+  const checks: unknown[] = [];
+  const saves: unknown[] = [];
+  const view = renderSlot(section, {}, { rpc: {
+    connection: () => stored,
+    testConnection: input => { checks.push(input); return { username: "alice" }; },
+    saveConnection: input => {
+      saves.push(input);
+      stored = { url: "https://mm.example", hasCookie: true };
+      return stored;
+    },
+  } });
+  try {
+    const url = await view.findByLabelText("Адрес сервера Mattermost");
+    const cookie = view.getByLabelText("Cookie") as HTMLInputElement;
+    expect(cookie.type).toBe("password");
+    fireEvent.change(url, { target: { value: "https://mm.example" } });
+    fireEvent.change(cookie, { target: { value: "session=test" } });
+    fireEvent.click(view.getByText("Проверить соединение"));
+    await view.findByText("Соединение установлено · @alice");
+    expect(checks).toEqual([{ url: "https://mm.example", cookie: "session=test" }]);
+    expect(saves).toEqual([]);
+    fireEvent.click(view.getByText("Сохранить"));
+    await view.findByText("Подключение сохранено");
+    expect(saves).toEqual(checks);
+    expect(cookie.value).toBe("");
+    fireEvent.click(view.getByText("Проверить соединение"));
+    await waitFor(() => expect(checks[1]).toEqual({ url: stored.url, cookie: "" }));
+    fireEvent.change(url, { target: { value: "https://other.example" } });
+    expect((view.getByText("Проверить соединение") as HTMLButtonElement).disabled).toBe(true);
+  } finally { view.lifecycle.unmount(); }
+});
+
+it("shows this thread's subscriptions in the card and Info with a check time and shared color", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  const props = { threadId: "target", projectId: "p", environment: null };
+  const own = { id: "a".repeat(20), chat: "target", owner: "p", title: "Promo", kind: "channel",
+    url: "https://mm.example/team/channels/promo", interval: 10, rule: "QA", until: null, push: null,
+    schedule: "schedule", paused: false, timezone: "UTC", status: "answer", last_checked_at: 1800000000 };
+  const rpc = { list: () => ({ watches: [own, { ...own, chat: "other", title: "Other channel" }],
+    colors: { answer: "#123456", attention: null, resolved: null } }) };
+  for (const section of [app.threadContextCardSections[0]!, app.threadInfoSections[0]!]) {
+    const view = renderSlot(section, props, { rpc });
+    try {
+      const link = await view.findByLabelText("Открыть в Mattermost: Promo");
+      expect(link.getAttribute("href")).toBe(own.url);
+      expect(view.queryByText("Other channel")).toBeNull();
+      expect(view.getByText("Ждут ответа").querySelector("i")?.style.backgroundColor).toBe("rgb(18, 52, 86)");
+      expect(view.container.querySelector("time")?.dateTime).toBe(new Date(own.last_checked_at * 1000).toISOString());
+    } finally { view.lifecycle.unmount(); }
+    const hidden = renderSlot(section, props, { settings: { showThreadSubscriptions: false }, rpc });
+    try {
+      expect(hidden.container.textContent).toBe("");
+      expect(hidden.inspection.rpcCalls).toHaveLength(0);
+    } finally { hidden.lifecycle.unmount(); }
+  }
 });

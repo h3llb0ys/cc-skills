@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import plugin from "./server";
 import { contract } from "./contract";
@@ -22,6 +22,9 @@ db.execute("insert into watches values (?,?)",(row["id"],json.dumps(row)))
 db.commit()`;
   type Handlers = {
     list(): Promise<unknown>;
+    saveConnection(input: { url: string; cookie: string }): Promise<unknown>;
+    connection(): Promise<unknown>;
+    testConnection(input: { url: string; cookie: string }): Promise<unknown>;
     edit(input: {id:string; interval:number; rule:string; push:null; draft:boolean; until:null}): Promise<null>;
   };
   let handlers!: Handlers;
@@ -31,6 +34,13 @@ db.commit()`;
       sdk:{plugins:{list:async()=>({plugins:[{id:"mattermost",rootDir:process.cwd()}]})}},
       storage:{kv:{get:async()=>undefined}},realtime:{publish:()=>{}},
       rpc:{register: (_:unknown,h:Handlers)=>{handlers=h;}} } as unknown as BbPluginApi);
+    vi.stubEnv("MM_CONFIG", join(dir, "mm.env"));
+    expect(await handlers.connection()).toEqual({ url: "", hasCookie: false });
+    const credentials = { url: "https://mm.example", cookie: "session=fixture" };
+    const publicConfig = { url: credentials.url, hasCookie: true };
+    expect(await handlers.saveConnection(credentials)).toEqual(publicConfig);
+    expect(await handlers.connection()).toEqual(publicConfig);
+    await expect(handlers.testConnection({ url: "https://other.example", cookie: "" })).rejects.toThrow("Введите cookie");
     const read = async () => contract.list.output.parse(await handlers.list()).watches;
     expect(await read()).toMatchObject([{id,status:"answer",interval:5}]);
     const input = {id,interval:12,rule:"Только апрув",push:null,draft:true,until:null};
@@ -39,5 +49,5 @@ db.commit()`;
     await expect(handlers.edit({...input,id:"b".repeat(20)})).rejects.toThrow("Only active BB");
     const cursor = execFileSync("python3", ["-c", 'import sqlite3,sys,json;print(json.loads(sqlite3.connect(sys.argv[1]).execute("select data from watches where id=?",(sys.argv[2],)).fetchone()[0])["seen"]["p"])',join(dir,"watches.sqlite3"),id]);
     expect(cursor.toString().trim()).toBe("123");
-  } finally { rmSync(dir,{recursive:true,force:true}); }
+  } finally { vi.unstubAllEnvs(); rmSync(dir,{recursive:true,force:true}); }
 });

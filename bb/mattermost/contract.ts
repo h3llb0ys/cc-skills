@@ -20,12 +20,18 @@ export const watch = settings.extend({
   id, url, chat: z.string(), owner: z.string(), title: z.string().optional(),
   kind: z.enum(["thread", "channel"]).default("thread"), channel: z.string().nullable().optional(),
   status: z.union([signal, z.literal("normal")]).default("normal"),
+  last_checked_at: z.number().int().nonnegative().optional(),
   schedule: z.string().nullable(), paused: z.boolean(), timezone: z.string(),
   push_problem: z.string().optional(), source_problem: z.string().optional(),
 });
 export type Watch = z.infer<typeof watch>;
 export const palette = z.object({ answer: color.nullable(), attention: color.nullable(), resolved: color.nullable() });
+const credentials = z.object({ url: z.string().max(4096), cookie: z.string().max(65536) });
+const connectionState = z.object({ url: z.string(), hasCookie: z.boolean(), needsRepair: z.boolean().optional() });
 export const contract = defineRpcContract({
+  connection: { input: z.null(), output: connectionState },
+  saveConnection: { input: credentials, output: connectionState },
+  testConnection: { input: credentials, output: z.object({ username: z.string() }) },
   list: { input: z.null(), output: z.object({ watches: z.array(watch), colors: palette }) },
   colors: { input: z.null(), output: palette },
   edit: { input: settings.extend({ id }), output: z.null() },

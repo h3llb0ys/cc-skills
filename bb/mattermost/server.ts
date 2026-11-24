@@ -7,10 +7,11 @@ import { contract, palette } from "./contract";
 const execute = promisify(execFile);
 export default function mattermost(bb: BbPluginApi) {
   const config = bb.settings.define({
+    showThreadSubscriptions: { type: "boolean", label: "Показывать подписки в правой панели", default: true },
     stateDirectory: { type: "string", label: "Каталог подписок (MM_STATE_DIR)", default: "" },
   });
   let script: string | undefined;
-  async function cli(args: string[]) {
+  async function cli(args: string[], input?: { url: string; cookie: string }) {
     if (!script) {
       const plugins = await bb.sdk.plugins.list();
       const own = plugins.plugins.find(p => p.id === bb.pluginId);
@@ -21,7 +22,12 @@ export default function mattermost(bb: BbPluginApi) {
     const env = { ...process.env };
     if (stateDirectory) env.MM_STATE_DIR = stateDirectory;
     try {
-      const { stdout } = await execute("python3", ["-B", script, ...args], { env, timeout: 70000, maxBuffer: 8 * 1024 * 1024 });
+      const task = execute("python3", ["-B", script, ...args], { env, timeout: 70000, maxBuffer: 8 * 1024 * 1024 });
+      if (input) {
+        task.child.stdin?.on("error", () => { /* execFile reports child failures below. */ });
+        task.child.stdin?.end(JSON.stringify(input));
+      }
+      const { stdout } = await task;
       return JSON.parse(stdout);
     } catch (cause) {
       const err = cause as { stderr?: string; code?: string };
@@ -36,6 +42,9 @@ export default function mattermost(bb: BbPluginApi) {
   }
   bb.agents.contributeInstructions(() => 'When relaying a Mattermost watch notification, keep its summary and permalink. For a notification headed "Уведомление Mattermost · Ждут ответа", "Стоит посмотреть" or "Решено", show the corresponding status as a standalone ::mattermost-status{status="answer"} directive, using attention or resolved for the other two. An ordinary notification needs no directive.');
   bb.rpc.register(contract, {
+    connection: () => cli(["connection", "status"]),
+    saveConnection: input => cli(["connection", "save"], input),
+    testConnection: input => cli(["connection", "test"], input),
     colors,
     list: async () => {
       const [watches, currentColors] = await Promise.all([cli(["watch", "list", "--platform", "bb"]), colors()]);

@@ -14,6 +14,7 @@ from urllib.error import URLError
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from client import Client, mmid
+from connection import connection
 import watches
 
 
@@ -62,6 +63,8 @@ def parser():
         if name == "around":
             for side in ("--before", "--after"):
                 p.add_argument(side, type=int, choices=range(201), metavar="0..200", default=5)
+    p = commands.add_parser("connection", help="manage plugin connection settings")
+    p.add_argument("operation", choices=["status", "test", "save"])
     p = commands.add_parser("file")
     p.add_argument("id")
     p.add_argument("--output", help="save attachment to a new file")
@@ -102,7 +105,9 @@ def parser():
 def main():
     os.umask(0o077)
     args = parser().parse_args()
-    if args.action in ("watch", "unwatch", "enable", "tick", "review", "resolve", "edit"):
+    if args.action == "connection":
+        result = connection(args.operation, None if args.operation == "status" else json.load(sys.stdin))
+    elif args.action in ("watch", "unwatch", "enable", "tick", "review", "resolve", "edit"):
         result = watches.handle(args)
         if args.action == "tick":
             return result

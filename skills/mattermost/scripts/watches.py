@@ -13,7 +13,7 @@ from contextlib import closing
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from client import ApiError, AuthError, Client, ordered, timestamp
+from client import ApiError, AuthError, Client, SiteMismatch, ordered, timestamp
 
 
 class ChannelUnavailable(ValueError):
@@ -39,7 +39,7 @@ def versions(posts):
 def public(state):
     return {k: v for k, v in state.items()
             if k in ("id", "url", "platform", "chat", "owner", "interval", "rule", "push",
-                     "until", "schedule", "paused", "timezone", "push_problem", "source_problem", "kind", "channel", "title", "draft", "status")}
+                     "until", "schedule", "paused", "timezone", "push_problem", "source_problem", "last_checked_at", "kind", "channel", "title", "draft", "status")}
 
 
 def run(args, stdin=None):
@@ -69,7 +69,8 @@ def worker_prompt(state):
             "only when that particular question was answered. Removed questions are cleared at resolve. Inspect still-open questions via their "
             "permalinks before clearing them. Remaining questions keep answer status. "
             "Ignore questions already answered. For an unmet delay use --recheck-at with the absolute "
-            "deadline based on question time, even if there will be no more posts. "
+            "deadline based on question time, even if there will be no more posts. At a due reminder, "
+            "reassess the retained context and schedule the earliest remaining unanswered deadline. "
             f"Run {cli} resolve {state['id']} TOKEN, replacing TOKEN with the reviewed batch token. "
             "For a matching event provide the summary in Russian, reason, permalink and requested draft "
             "via --message-file (use a temporary file); use --push only if the saved push rule matches. "
@@ -198,10 +199,11 @@ def tick(state, now):
         state["next"] += ((now - state["next"]) // interval + 1) * interval
     try:
         _, posts = read_source(Client(), state)
+        state["last_checked_at"] = int(time.time())
         current = versions(posts)
         state.pop("source_problem", None)
         auth = False
-    except (ChannelUnavailable, ApiError) as error:
+    except (ChannelUnavailable, SiteMismatch, ApiError) as error:
         state["source_problem"] = str(error)
         return idle
     except AuthError:
@@ -226,6 +228,7 @@ def review(state, now):
         return {"idle": True}
     if state.get("reviewed") is not None:
         state["token"] = uuid.uuid4().hex
+    state["reviewed_at"] = now
     result = dict(public(state), token=state["token"], now=timestamp(now * 1000))
     if state["auth"]:
         state["reviewed"] = state["seen"]
@@ -235,6 +238,7 @@ def review(state, now):
     me = client.api("users/me")
     result["watching_as"] = {"id": me["id"], "username": me["username"]}
     team, posts = read_source(client, state)
+    state["last_checked_at"] = int(time.time())
     result.update(public(state))
     snapshot = versions(posts)
     state["reviewed"] = snapshot
@@ -317,7 +321,7 @@ def handle(args):
             else:
                 state = dict(id=key, seen=versions(posts), schedule=None, auth_notified=False, paused=False,
                              window_start=posts[0]["create_at"] if posts else now * 1000)
-            state.update(kind=kind, title=args.title or title, channel=channel_name, draft=args.draft,
+            state.update(last_checked_at=int(time.time()), kind=kind, title=args.title or title, channel=channel_name, draft=args.draft,
                          url=url, owner=args.owner, chat=args.chat, platform=args.platform,
                          interval=args.interval, timezone=args.timezone, environment=args.environment,
                          rule=args.rule, push=args.push, until=args.until, next=now, lease=0, token=None,
@@ -400,7 +404,14 @@ def handle(args):
                     state["awaiting"] = sorted(awaiting)
                 if status is not None:
                     state["status"] = status
-            if state.get("kind") == "channel" and not state["auth"] and not args.recheck_at:
+            recheck = args.recheck_at
+            pending = state.get("recheck")
+            if state["auth"]:
+                recheck = pending
+            elif pending and pending > state.get("reviewed_at", 0):
+                # An unrelated review before the deadline cannot consume the reminder.
+                recheck = min(pending, recheck) if recheck else pending
+            if state.get("kind") == "channel" and not state["auth"] and not recheck:
                 state["window_start"] = state["recent_start"]
                 recent = state["recent_seen"]
                 for key in state.get("awaiting", []):
@@ -414,7 +425,7 @@ def handle(args):
                 notify(state, message)
             state.update(seen=state["reviewed"], token=None, lease=0, reviewed=None,
                          auth_notified=state["auth"], pending_push=args.push or state.get("pending_push", False),
-                         recheck=state.get("recheck") if state["auth"] else args.recheck_at)
+                         recheck=recheck)
             if args.push:
                 # Commit chat delivery before trying the independent push channel.
                 save(db, args.id, state)

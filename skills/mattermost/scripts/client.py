@@ -17,6 +17,10 @@ class AuthError(ValueError):
     pass
 
 
+class SiteMismatch(ValueError):
+    pass
+
+
 class ApiError(ValueError):
     def __init__(self, status, path):
         super().__init__(f"Mattermost returned HTTP {status} for {path}")
@@ -42,28 +46,52 @@ def ordered(posts):
     return sorted(posts, key=lambda post: (post["create_at"], post["id"]))
 
 
+def config_path():
+    return Path(os.environ.get("MM_CONFIG", "~/.config/cc-skills/mattermost.env")).expanduser()
+
+
+def read_config(lines):
+    values = {}
+    for line in lines:
+        key, separator, value = line.partition("=")
+        if separator and key.strip() in ("MM_URL", "MM_COOKIE"):
+            value = value.strip()
+            if value.startswith('"'):
+                value = json.loads(value)
+            elif len(value) >= 2 and value[0] == value[-1] == "'":
+                value = value[1:-1]
+            if not isinstance(value, str):
+                raise ValueError("Invalid Mattermost configuration")
+            values[key.strip()] = value
+    return values
+
+
+def site_url(value):
+    base = value.strip().rstrip("/")
+    site = urlsplit(base)
+    if (site.scheme != "https" or not site.hostname or site.username is not None
+            or "?" in base or "#" in base or chr(92) in base or any(c.isspace() or ord(c) < 32 for c in base)):
+        raise ValueError("Укажите HTTPS-адрес сервера Mattermost")
+    return base
+
+
 class Client:
-    def __init__(self):
-        config = {}
-        default = Path.home() / ".config/cc-skills/mattermost.env"
-        path = Path(os.environ.get("MM_CONFIG", default))
-        if path.is_file():
-            for line in path.read_text().splitlines():
-                key, separator, value = line.partition("=")
-                if separator and key.strip() in ("MM_URL", "MM_COOKIE"):
-                    value = value.strip()
-                    if value.startswith('"'):
-                        value = json.loads(value)
-                    elif len(value) >= 2 and value[0] == value[-1] == "'":
-                        value = value[1:-1]
-                    config[key.strip()] = value
-        self.base = (os.environ.get("MM_URL") or config.get("MM_URL", "")).rstrip("/")
-        site = urlsplit(self.base)
-        if site.scheme != "https" or not site.hostname or site.username is not None or site.query or site.fragment:
-            raise ValueError("Configure a trusted HTTPS Mattermost site in MM_URL or MM_CONFIG")
-        cookie = os.environ.get("MM_COOKIE")
-        if not cookie and self.base == config.get("MM_URL", "").rstrip("/"):
-            cookie = config.get("MM_COOKIE")
+    def __init__(self, credentials=None):
+        if credentials is None:
+            override = os.environ.get("MM_URL")
+            cookie = os.environ.get("MM_COOKIE") if override else None
+            if override and cookie:
+                base = override
+            else:
+                path = config_path()
+                config = read_config(path.read_text().splitlines()) if path.is_file() else {}
+                saved_url = config.get("MM_URL", "").rstrip("/")
+                base = site_url(override or saved_url)
+                if base == saved_url:
+                    cookie = config.get("MM_COOKIE")
+        else:
+            base, cookie = credentials
+        self.base = site_url(base)
         if not cookie or not cookie.isascii() or not cookie.isprintable():
             raise AuthError("Mattermost session cookie is missing or invalid")
         self.headers = {"Cookie": cookie, "Accept": "application/json"}
@@ -94,7 +122,7 @@ class Client:
 
     def link(self, url, route):
         if not url.startswith(self.base + "/"):
-            raise ValueError("Expected a permalink on the configured Mattermost site")
+            raise SiteMismatch("Ссылка относится к другому серверу Mattermost. Проверьте адрес в настройках подключения.")
         path = urlsplit(url[len(self.base):]).path
         match = re.fullmatch(r"/([\w.-]+)/" + route + r"/([\w.-]+)/?", path)
         if not match or any(piece in (".", "..") for piece in match.groups()):
@@ -177,7 +205,12 @@ class Client:
                 "page": 0, "per_page": min(limit + 1, 100)}
         posts = {}
         while len(posts) <= limit:
-            page = self.api("teams/" + mmid(channel["team_id"]) + "/posts/search", body=body)
+            try:
+                page = self.api("teams/" + mmid(channel["team_id"]) + "/posts/search", body=body)
+            except AuthError:
+                self.api("users/me")
+                raise ValueError("Сессия активна, но Mattermost отклонил поиск. Проверьте, "
+                                 "что в настройках сохранён полный Cookie, включая актуальный MMCSRF.") from None
             previous = len(posts)
             for key in page["order"]:
                 post = page["posts"][key]
@@ -193,9 +226,25 @@ class Client:
     def render(self, team, posts):
         names = {}
         users = list(dict.fromkeys(p["user_id"] for p in posts if p.get("user_id")))
-        for start in range(0, len(users), 100):
-            for user in self.api("users/ids", body=users[start:start + 100]):
-                names[user["id"]] = user["username"]
+        if self.headers.get("X-CSRF-Token"):
+            for start in range(0, len(users), 100):
+                try:
+                    profiles = self.api("users/ids", body=users[start:start + 100])
+                except AuthError:
+                    break
+                except ApiError as error:
+                    if error.status != 403:
+                        raise
+                    break
+                names.update((u["id"], u["username"]) for u in profiles)
+        for key in users:
+            if key in names:
+                continue
+            try:
+                names[key] = self.api("users/" + mmid(key))["username"]
+            except ApiError as error:
+                if error.status not in (403, 404):
+                    raise
         rows = []
         files = {}
         for post in posts:

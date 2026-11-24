@@ -85,6 +85,30 @@ class ApiTests(unittest.TestCase):
             watches.run(["bb", "automation", "list"])
             self.assertEqual(call.call_args.args[0], ["/test/app/bb", "automation", "list"])
 
+    def test_thread_authors_without_csrf_are_fetched_once_per_user(self):
+        self.api.headers.pop("X-CSRF-Token")
+        sample = [post(ROOT, 1), post(REPLY, 2, ROOT)]
+        with patch.object(self.api, "api", return_value={"username": "reader"}) as fetch:
+            rows = self.api.render("team", sample)
+        self.assertEqual([row["author"] for row in rows], ["reader", "reader"])
+        fetch.assert_called_once_with("users/" + OTHER)
+
+    def test_batch_denied_and_profile_hidden_preserves_posts(self):
+        with patch.object(self.api, "api", side_effect=[client.AuthError("denied"), client.ApiError(403, "profile")]):
+            self.assertEqual(self.api.render("team", [post(ROOT, 1)])[0]["author"], OTHER)
+        with patch.object(self.api, "api", side_effect=client.AuthError("expired")):
+            with self.assertRaises(client.AuthError):
+                self.api.render("team", [post(ROOT, 1)])
+
+    def test_search_denial_distinguishes_working_and_expired_sessions(self):
+        with patch.object(self.api, "channel", return_value=("team", dict(id=CHANNEL, team_id=TEAM, name="qa"))):
+            with patch.object(self.api, "api", side_effect=[client.AuthError("denied"), {"id": OTHER}]):
+                with self.assertRaisesRegex(ValueError, "Сессия активна"):
+                    self.api.search("url", "keyword", 1)
+            with patch.object(self.api, "api", side_effect=client.AuthError("expired")):
+                with self.assertRaises(client.AuthError):
+                    self.api.search("url", "keyword", 1)
+
     def test_search_does_not_expose_other_channels(self):
         ok, other = post(ROOT, 1), post(REPLY, 2, channel=OTHER)
         page = {"order": [ROOT, REPLY], "posts": {ROOT: ok, REPLY: other}}
@@ -149,6 +173,23 @@ class WatchTests(unittest.TestCase):
             self.assertEqual(self.invoke("watch", "list")[0]["status"], expected)
             self.now += 300
         self.assertFalse(any("push-notifications" in c.args[0] for c in self.calls.call_args_list))
+
+    def test_last_checked_at_advances_on_quiet_poll_but_not_skip_or_failure(self):
+        def checked():
+            return self.invoke("watch", "list")[0]["last_checked_at"]
+
+        self.assertEqual(checked(), self.now)
+        self.now += 10
+        self.invoke("tick", self.key)
+        success = self.now
+        self.assertEqual(checked(), success)
+        self.now += 10
+        self.invoke("tick", self.key)
+        self.assertEqual(checked(), success)
+        self.client.thread.side_effect = client.ApiError(500, "posts")
+        self.now += 300
+        self.invoke("tick", self.key)
+        self.assertEqual(checked(), success)
 
     def test_edit_invalidates_inflight_review_and_preserves_schedule(self):
         self.rows.append(post(REPLY, 3, ROOT))
@@ -434,6 +475,27 @@ class WatchTests(unittest.TestCase):
         self.assertIn("target", self.calls.call_args.args[0])
         self.assertIn("bot:project", self.calls.call_args.args[0])
 
+    def test_intervening_review_preserves_unconsumed_reminder(self):
+        self.rows.append(post(REPLY, 3, ROOT))
+        self.invoke("tick", self.key)
+        token = self.invoke("review", self.key)["token"]
+        deadline = self.now + 360
+        self.invoke("resolve", self.key, token, "--recheck-at", client.timestamp(deadline * 1000))
+        self.now += 300
+        self.rows.append(post(OTHER, 4, ROOT))
+        self.invoke("tick", self.key)
+        batch = self.invoke("review", self.key)
+        self.assertEqual(batch["changed"], [OTHER])
+        self.now = deadline + 1
+        self.invoke("resolve", self.key, batch["token"])
+        self.invoke("tick", self.key)
+        due = self.invoke("review", self.key)
+        self.assertEqual(due["recheck_at"], deadline)
+        self.assertEqual(due["changed"], [])
+        self.invoke("resolve", self.key, due["token"])
+        self.invoke("tick", self.key)
+        self.assertTrue(self.invoke("review", self.key)["idle"])
+
     def test_deadline_between_regular_polls_preserves_the_next_poll(self):
         self.invoke(*self.options, "--interval", "30")
         self.rows.append(post(REPLY, 3, ROOT))
@@ -453,6 +515,17 @@ class WatchTests(unittest.TestCase):
         self.rows.append(post(OTHER, 4, ROOT))
         self.invoke("tick", self.key)
         self.assertEqual(self.invoke("review", self.key)["changed"], [OTHER])
+
+    def test_site_change_records_problem_until_original_site_returns(self):
+        with patch.object(self.client, "thread", side_effect=client.SiteMismatch("другой сервер")) as read:
+            self.invoke("tick", self.key)
+            self.assertIn("другой сервер", self.invoke("watch", "list")[0]["source_problem"])
+            self.now += 60
+            self.invoke("tick", self.key)
+            read.assert_called_once()
+        self.now += 240
+        self.invoke("tick", self.key)
+        self.assertNotIn("source_problem", self.invoke("watch", "list")[0])
 
     def test_inaccessible_source_preserves_cadence_and_catches_up(self):
         for status in (403, 404):
