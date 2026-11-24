@@ -2,9 +2,18 @@ import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { contract, palette } from "./contract";
+import { contract, palette, type WatchSettings } from "./contract";
 
 const execute = promisify(execFile);
+function watchOptions(input: WatchSettings) {
+  const args = ["--interval", String(input.interval), "--rule=" + input.rule];
+  if (input.destination) args.push("--destination", input.destination);
+  if (input.push) args.push("--push=" + input.push);
+  if (input.draft) args.push("--draft");
+  if (input.until !== null) args.push("--until", new Date(input.until * 1000).toISOString());
+  return args;
+}
+
 export default function mattermost(bb: BbPluginApi) {
   const config = bb.settings.define({
     showThreadSubscriptions: { type: "boolean", label: "Показывать подписки в правой панели", default: true },
@@ -33,6 +42,22 @@ export default function mattermost(bb: BbPluginApi) {
       const err = cause as { stderr?: string; code?: string };
       throw new Error(err.stderr?.trim().slice(0, 300) || "Не удалось прочитать хранилище подписок Mattermost");
     }
+  }
+  async function targetThread(chat: string) {
+    const thread = await bb.sdk.threads.get({ threadId: chat });
+    if (thread.archivedAt || thread.deletedAt || thread.visibility === "hidden" || !thread.environmentId)
+      throw new Error("Выбери активный тред BB с рабочим окружением");
+    return ["--chat", thread.id, "--owner", thread.projectId, "--environment", thread.environmentId];
+  }
+  async function finishSetup(id: string, target: string[]) {
+    try {
+      await cli(["finish-setup", id, ...target]);
+    } catch (cause) {
+      throw new Error("Расписание не включено. Нажми «Включить расписание» у подписки. " + String(cause));
+    } finally {
+      bb.realtime.publish("changed", {});
+    }
+    return null;
   }
   async function colors() {
     const [answer, attention, resolved] = await Promise.all(
@@ -73,13 +98,15 @@ export default function mattermost(bb: BbPluginApi) {
       bb.realtime.publish("changed", {});
       return null;
     },
+    finishSetup: async ({ id, chat }) => finishSetup(id, await targetThread(chat)),
+    create: async input => {
+      const target = await targetThread(input.chat);
+      const created = await cli(["watch", input.url, "--new", "--platform", "bb", ...target,
+        "--timezone", input.timezone, ...watchOptions(input)]);
+      return finishSetup(created.id, target);
+    },
     edit: async input => {
-      const args = ["edit", input.id, "--interval", String(input.interval), "--rule=" + input.rule];
-      if (input.destination) args.push("--destination", input.destination);
-      if (input.push) args.push("--push=" + input.push);
-      if (input.draft) args.push("--draft");
-      if (input.until !== null) args.push("--until", new Date(input.until * 1000).toISOString());
-      await cli(args);
+      await cli(["edit", input.id, ...watchOptions(input)]);
       bb.realtime.publish("changed", {});
       return null;
     },

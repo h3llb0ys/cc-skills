@@ -64,3 +64,5 @@
 .mm-check-now { display:flex; gap:3px; align-items:center; flex-wrap:wrap }
 .mm-reply { display:grid; gap:4px; justify-items:start; margin:6px 0 }
 .mm-reply textarea { width:100%; min-height:4em; padding:5px; color:inherit; background:var(--background); border:1px solid var(--border); border-radius:4px }
+
+.mm-create-bar .mm-icon { margin-left:auto }

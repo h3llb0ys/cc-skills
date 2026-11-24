@@ -695,6 +695,23 @@ class WatchTests(unittest.TestCase):
         self.invoke("resolve", second, review["token"], "--cards-file", str(cards))
         self.assertEqual(self.invoke("board")["resolved"]["rows"][0]["id"], row["id"])
 
+    def test_new_watch_retries_setup_without_replacing_existing_settings(self):
+        with self.assertRaisesRegex(ValueError, "уже подключён"):
+            self.invoke(*self.options, "--new", "--interval", "40")
+        second = self.options.copy()
+        second[second.index("target")] = "other-chat"
+        watch = self.invoke(*second, "--new")
+        self.assertEqual(self.invoke(*second, "--new")["id"], watch["id"])
+        with self.assertRaisesRegex(ValueError, "другими условиями"):
+            self.invoke(*second, "--new", "--interval", "40")
+        name = "mm-watch-" + watch["id"]
+        self.calls.side_effect = [subprocess.CompletedProcess([], 0, "[]"), None,
+                                 subprocess.CompletedProcess([], 0, json.dumps([dict(id="new-auto", name=name)]))]
+        self.assertEqual(self.invoke("enable", watch["id"])["schedule"], "new-auto")
+        with self.assertRaisesRegex(ValueError, "уже подключён"):
+            self.invoke(*second, "--new")
+        self.assertTrue(all(row["interval"] == 5 for row in self.invoke("watch", "list")))
+
     def test_unwatch_recovers_schedule_after_interrupted_enable(self):
         empty = subprocess.CompletedProcess([], 0, "[]")
         self.calls.side_effect = [empty, None, subprocess.CalledProcessError(1, "list")]

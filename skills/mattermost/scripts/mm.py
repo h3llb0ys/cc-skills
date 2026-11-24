@@ -70,6 +70,7 @@ def parser():
     p.add_argument("--output", help="save attachment to a new file")
     p = commands.add_parser("watch", help="configure a watch or list subscriptions")
     p.add_argument("url", help="post permalink or list")
+    p.add_argument("--new", action="store_true", help="create from the UI without replacing an existing watch")
     p.add_argument("--platform", choices=["bb", "orca"])
     p.add_argument("--owner", help="BB project ID or Orca bot name")
     p.add_argument("--chat", help="destination BB thread ID or Orca bot chat ID")
@@ -95,9 +96,12 @@ def parser():
             p.add_argument("--before", type=positive)
         else:
             p.add_argument("summary", type=positive)
-    for name in ("unwatch", "enable", "check", "tick", "review", "resolve", "edit"):
+    for name in ("unwatch", "enable", "finish-setup", "check", "tick", "review", "resolve", "edit"):
         p = commands.add_parser(name)
         p.add_argument("id", help="local watch ID")
+        if name == "finish-setup":
+            for flag in ("--chat", "--owner", "--environment"):
+                p.add_argument(flag, required=True)
         if name == "unwatch":
             p.add_argument("--platform", choices=["bb", "orca"])
         if name == "edit":
@@ -128,7 +132,7 @@ def main():
     args = parser().parse_args()
     if args.action == "connection":
         result = connection(args.operation, None if args.operation == "status" else json.load(sys.stdin))
-    elif args.action in ("watch", "unwatch", "enable", "check", "tick", "review", "resolve", "edit", "inbox", "open-summary", "board", "read-card"):
+    elif args.action in ("watch", "unwatch", "enable", "finish-setup", "check", "tick", "review", "resolve", "edit", "inbox", "open-summary", "board", "read-card"):
         result = watches.handle(args)
         if args.action == "tick":
             return result

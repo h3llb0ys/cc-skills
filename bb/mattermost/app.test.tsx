@@ -63,6 +63,27 @@ it("edits and resets a saved status color from plugin settings without loading w
   } finally { view.lifecycle.unmount(); }
 });
 
+it("groups the same subscriptions by BB thread from the top navigation", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  const watch = { id: "a".repeat(20), chat: "thread-1", owner: "project", title: "Промо",
+    url: "https://mm.example/team/channels/promo", interval: 10, rule: "QA", paused: false,
+    schedule: "job", timezone: "UTC", until: null, push: null };
+  const view = renderSlot(app.navPanels[0]!, { subPath: "threads" }, { rpc: {
+    list: () => ({ watches: [watch, { ...watch, id: "b".repeat(20), title: "Релизы" }],
+      colors: { answer: null, attention: null, resolved: null } }),
+  } });
+  try {
+    const group = (await view.findByText("thread-1 · 2")).closest("details")!;
+    expect(group.textContent).toContain("Промо");
+    expect(group.textContent).toContain("Релизы");
+    const tab = view.getByRole("button", { name: "По тредам BB", pressed: true });
+    expect(tab.closest("nav")).toBe(view.getByText("Входящие").closest("nav"));
+    expect(view.queryByText("Список подписок")).toBeNull();
+    fireEvent.click(tab);
+    expect(JSON.stringify(view.inspection.navigateCalls)).toContain('"subPath":"threads"');
+  } finally { view.lifecycle.unmount(); }
+});
+
 it("confirms removal, keeps the row after an error and retries only the selected watch", async () => {
   const app = await loadPluginApp(() => import("./app"));
   const w = { id: "a".repeat(20), chat: "t", owner: "p", url: "https://mm.example/team/pl/a", title: "Релиз",
@@ -253,5 +274,36 @@ it("opens the board first, keeps read questions active and copies the edited rep
     expect(view.getByText("Ждут ответа")).toBeTruthy();
     fireEvent.click(view.getByRole("button", { name: /Подписки/ }));
     expect(view.inspection.navigateCalls.some(call => JSON.stringify(call).includes("list"))).toBe(true);
+  } finally { view.lifecycle.unmount(); }
+});
+
+it("creates a watch from the empty subscriptions panel and keeps inputs when scheduling fails", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  type SidebarThread = ReturnType<typeof import("@get-bb/plugin-sdk/app").experimental_useSidebarThreads>["threads"][number];
+  const sidebarThread = { id: "thread1", projectId: "project", displayTitle: "Дежурство",
+    environment: { id: "env", name: "main" } } as SidebarThread;
+  const inputs: unknown[] = [];
+  const view = renderSlot(app.navPanels[0]!, { subPath: "list" }, {
+    sidebarThreads: { threads: [sidebarThread, { ...sidebarThread, id: "thread2" }] },
+    rpc: { list: () => ({ watches: [], colors: {answer:null, attention:null, resolved:null} }),
+      create: input => {
+        inputs.push(contract.create.input.parse(input));
+        if (inputs.length === 1) throw Error("Расписание недоступно");
+        return null;
+      } },
+  });
+  try {
+    fireEvent.click(await view.findByRole("button", { name: "Добавить подписку" }));
+    const url = "https://mm.example/team/channels/qa";
+    fireEvent.change(view.getByLabelText("Ссылка на канал или ветку Mattermost"), { target: { value: url } });
+    expect(view.getByRole("option", { name: /Дежурство.*thread1/ })).toBeTruthy();
+    expect(view.getByRole("option", { name: /Дежурство.*thread2/ })).toBeTruthy();
+    fireEvent.change(view.getByLabelText("Тред BB"), { target: { value: "thread1" } });
+    fireEvent.click(view.getByRole("button", { name: "Создать подписку" }));
+    await view.findByRole("alert");
+    expect((view.getByLabelText("Ссылка на канал или ветку Mattermost") as HTMLInputElement).value).toBe(url);
+    fireEvent.click(view.getByRole("button", { name: "Создать подписку" }));
+    await waitFor(() => expect(view.queryByRole("form", { name: "Новая подписка" })).toBeNull());
+    expect(inputs).toMatchObject([{ url, chat: "thread1", interval: 10, push: null }, { url, chat: "thread1" }]);
   } finally { view.lifecycle.unmount(); }
 });

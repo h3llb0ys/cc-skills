@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
@@ -22,6 +22,7 @@ db.execute("insert into watches values (?,?)",(row["id"],json.dumps(row)))
 db.commit()`;
   type Handlers = {
     list(): Promise<unknown>;
+    finishSetup(input: {id:string; chat:string}): Promise<null>;
     board(input: {answer:number; attention:number; resolved:number}): Promise<unknown>;
     readCard(input: {id:number; revision:number}): Promise<null>;
     saveConnection(input: { url: string; cookie: string }): Promise<unknown>;
@@ -33,7 +34,8 @@ db.commit()`;
   try {
     execFileSync("python3", ["-c", init, join(dir,"watches.sqlite3"), id]);
     plugin({ agents:{contributeInstructions:()=>{}}, pluginId:"mattermost", settings:{define:()=>({get:async()=>({stateDirectory:dir})})},
-      sdk:{plugins:{list:async()=>({plugins:[{id:"mattermost",rootDir:process.cwd()}]})}},
+      sdk:{threads:{get: async ({threadId}: {threadId:string}) => ({id:threadId, projectId:"proj1", environmentId:"new-env", visibility:"visible"})},
+        plugins:{list:async()=>({plugins:[{id:"mattermost",rootDir:process.cwd()}]})}},
       storage:{kv:{get:async()=>undefined}},realtime:{publish:()=>{}},
       rpc:{register: (_:unknown,h:Handlers)=>{handlers=h;}} } as unknown as BbPluginApi);
     vi.stubEnv("MM_CONFIG", join(dir, "mm.env"));
@@ -57,5 +59,31 @@ db.commit()`;
     await expect(handlers.edit({...input,id:"b".repeat(20)})).rejects.toThrow("Only active BB");
     const cursor = execFileSync("python3", ["-c", 'import sqlite3,sys,json;print(json.loads(sqlite3.connect(sys.argv[1]).execute("select data from watches where id=?",(sys.argv[2],)).fetchone()[0])["seen"]["p"])',join(dir,"watches.sqlite3"),id]);
     expect(cursor.toString().trim()).toBe("123");
+
+    // Recover a partially created native job after the thread changed environment.
+    const pending = `import json,sqlite3,sys
+db=sqlite3.connect(sys.argv[1])
+row=json.loads(db.execute("select data from watches where id=?",(sys.argv[2],)).fetchone()[0])
+row.update(schedule=None,setup_pending=True,environment="old-env")
+db.execute("update watches set data=? where id=?",(json.dumps(row),row["id"]))
+db.commit()`;
+    const dbFile = join(dir, "watches.sqlite3");
+    execFileSync("python3", ["-c", pending, dbFile, id]);
+    const native = join(dir, "bb-test");
+    writeFileSync(native, `#!/bin/sh
+case "$2" in
+  list) echo '[{"id":"recovered","name":"mm-watch-${id}","enabled":false}]' ;;
+  update|resume) exit 0 ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o700 });
+    vi.stubEnv("BB_CLI", native);
+    await expect(handlers.finishSetup({ id, chat: "other-chat" })).rejects.toThrow("другому треду");
+    expect(await read()).toMatchObject([{ setup_pending: true, schedule: null }]);
+    await expect(handlers.finishSetup({ id, chat: "thread1" })).resolves.toBeNull();
+    expect(await read()).toMatchObject([{ schedule: "recovered", interval: 12 }]);
+    const row = JSON.parse(execFileSync("python3", ["-c", 'import sqlite3,sys;print(sqlite3.connect(sys.argv[1]).execute("select data from watches where id=?",(sys.argv[2],)).fetchone()[0])', dbFile, id]).toString());
+    expect(row.environment).toBe("new-env");
+    expect(row.setup_pending).toBeUndefined();
   } finally { vi.unstubAllEnvs(); rmSync(dir,{recursive:true,force:true}); }
 });

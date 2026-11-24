@@ -43,7 +43,7 @@ function Board({ colors, subscriptions }: { colors: Colors; subscriptions?: numb
   if (query.error) return <p role="alert">Не удалось загрузить входящие. <button onClick={() => void query.refetch()}>Повторить</button></p>;
   if (!data) return <p>Загрузка…</p>;
   if (Object.values(data).every(group => !group.total)) return <p>{subscriptions === 0
-    ? "Подписок пока нет. Пришли ссылку на канал или ветку Mattermost в BB-тред и напиши «следи»."
+    ? "Подписок пока нет. Открой вкладку «Подписки» и нажми «+»."
     : "Пока нет вопросов, требующих внимания."}</p>;
   return <>{(Object.keys(labels) as Signal[]).map(status => {
     const { total, rows } = data[status];
@@ -66,15 +66,18 @@ function Board({ colors, subscriptions }: { colors: Colors; subscriptions?: numb
 export function MattermostPanel({ subPath }: { subPath: string }) {
   const nav = useBbNavigate();
   const watches = useSubscriptions();
-  const list = subPath === "list";
+  const grouped = subPath === "threads";
+  const inbox = subPath !== "list" && !grouped;
   const last = Math.max(0, ...(watches.data?.watches ?? []).map(w => w.last_checked_at ?? 0));
   return <section className="mm-ui mm-panel mm-board">
     <header><h2>Mattermost</h2>{last > 0 && <small>Проверено {checkTime.format(last * 1000)}</small>}</header>
     <nav className="mm-tabs" aria-label="Mattermost">
-      <button aria-pressed={!list} onClick={() => nav.toPluginPanel("subscriptions")}>Входящие</button>
-      <button aria-pressed={list} onClick={() => nav.toPluginPanel("subscriptions", { subPath: "list" })}>
+      <button aria-pressed={inbox} onClick={() => nav.toPluginPanel("subscriptions")}>Входящие</button>
+      <button aria-pressed={subPath === "list"} onClick={() => nav.toPluginPanel("subscriptions", { subPath: "list" })}>
         Подписки{watches.data && " · " + watches.data.watches.length}</button>
+      <button aria-pressed={grouped} onClick={() => nav.toPluginPanel("subscriptions", { subPath: "threads" })}>По тредам BB</button>
     </nav>
-    {list ? <SubscriptionList query={watches} /> : <Board colors={watches.data?.colors ?? defaults} subscriptions={watches.data?.watches.length} />}
+    {inbox ? <Board colors={watches.data?.colors ?? defaults} subscriptions={watches.data?.watches.length} />
+      : <SubscriptionList query={watches} grouped={grouped} />}
   </section>;
 }

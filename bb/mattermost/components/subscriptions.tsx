@@ -2,56 +2,12 @@ import { useState } from "react";
 import { experimental_useSidebarThreads, experimental_Icon as Icon, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { contract, defaults, type Watch } from "../contract";
 import { checkTime } from "../time";
+import { WatchEditor } from "./watch-editor";
 import { CheckWatch } from "./check-watch";
 import { Marker } from "./status";
 import { useSubscriptions } from "../hooks/use-subscriptions";
 
-type Detail = { kind: "edit" | "open" | "remove"; id: string } | null;
-
-function localDate(seconds: number | null) {
-  if (seconds === null) return "";
-  const date = new Date(seconds * 1000);
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-}
-
-function WatchEditor({ watch, close }: { watch: Watch; close(): void }) {
-  const rpc = useRpc<typeof contract>();
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [rule, setRule] = useState(watch.rule);
-  const presets = ["Все новые сообщения", "Ждут моего ответа", "Блокеры и решения"];
-  return <form className="mm-sheet" onSubmit={async event => {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const end = String(data.get("until"));
-    setSaving(true);
-    try {
-      await rpc.call("edit", { id: watch.id, interval: Number(data.get("interval")), rule: String(data.get("rule")),
-        destination: data.get("destination") === "shared" ? "shared" : "chat",
-        push: String(data.get("push")).trim() || null, draft: data.has("draft"),
-        until: end ? Math.floor(new Date(end).getTime() / 1000) : null });
-      close();
-    } catch (cause) { setError(String(cause)); } finally { setSaving(false); }
-  }}>
-    <div className="mm-fields">
-      <label>Интервал, минуты<input name="interval" type="number" min="1" required defaultValue={watch.interval} /></label>
-      <label>Следить до (местное время)<input type="datetime-local" name="until" defaultValue={localDate(watch.until)} /></label>
-      <label className="wide">Куда присылать<select name="destination" defaultValue={watch.destination ?? "chat"}>
-        <option value="chat">Этот чат</option><option value="shared">Общий сабтред сводок</option>
-      </select></label>
-      <label className="wide">Когда сообщать<select value={presets.includes(rule) ? rule : "custom"}
-        onChange={e => setRule(e.target.value === "custom" ? "" : e.target.value)}>
-        {presets.map(p => <option key={p}>{p}</option>)}<option value="custom">Своё правило</option>
-      </select></label>
-      {presets.includes(rule) ? <input type="hidden" name="rule" value={rule} /> :
-        <label className="wide">Полное правило<textarea required name="rule" value={rule} onChange={e => setRule(e.target.value)} /></label>}
-      <label className="wide">Когда отправлять push<input name="push" placeholder="Выключен" defaultValue={watch.push ?? ""} /></label>
-      <label className="mm-check wide"><input type="checkbox" name="draft" defaultChecked={watch.draft} />Добавлять черновик ответа</label>
-    </div>
-    {error && <p role="alert">{error}</p>}
-    <div className="mm-actions"><button disabled={saving} type="submit">Сохранить</button><button type="button" onClick={close}>Отмена</button></div>
-  </form>;
-}
+type Detail = { kind: "edit" | "open" | "remove"; id: string } | { kind: "create"; id?: never } | null;
 
 function RemoveWatch({ watch, cancel, removed }: { watch: Watch; cancel(): void; removed(): void }) {
   const rpc = useRpc<typeof contract>();
@@ -78,17 +34,36 @@ function RemoveWatch({ watch, cancel, removed }: { watch: Watch; cancel(): void;
   </div>;
 }
 
+function FinishSetup({ watch, refresh }: { watch: Watch; refresh: () => Promise<unknown> }) {
+  const rpc = useRpc<typeof contract>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function activate() {
+    setBusy(true);
+    setError("");
+    try {
+      await rpc.call("finishSetup", { id: watch.id, chat: watch.chat });
+      await refresh();
+    } catch (cause) { setError(String(cause)); }
+    finally { setBusy(false); }
+  }
+  return <div className="mm-actions">
+    <button disabled={busy} onClick={() => void activate()}>{busy ? "Включаем…" : "Включить расписание"}</button>
+    {error && <span role="alert">{error}</span>}
+  </div>;
+}
+
 export function Subscriptions({ threadId }: { threadId: string }) {
   const query = useSubscriptions();
   return <SubscriptionList query={query} threadId={threadId} />;
 }
 
-export function SubscriptionList({ query, threadId }: { query: ReturnType<typeof useSubscriptions>; threadId?: string }) {
+export function SubscriptionList({ query, threadId, grouped = false }: { query: ReturnType<typeof useSubscriptions>; threadId?: string; grouped?: boolean }) {
   const nav = useBbNavigate();
   const { threads } = experimental_useSidebarThreads();
-  const [grouped, setGrouped] = useState(false);
   const [detail, setDetail] = useState<Detail>(null);
   const [error, setError] = useState("");
+  const creating = detail?.kind === "create";
   const rows = (query.data?.watches ?? []).filter(w => !threadId || w.chat === threadId);
   const colors = query.data?.colors ?? defaults;
   const names = new Map(threads.map(t => [t.id, t.displayTitle]));
@@ -125,6 +100,7 @@ export function SubscriptionList({ query, threadId }: { query: ReturnType<typeof
       <button type="button" className="mm-icon" title="Удалить подписку" aria-label={`Удалить подписку: ${title}`}
         onClick={() => setDetail({ kind: "remove", id: w.id })}><Icon name="Trash2" className="mm-action-glyph" aria-hidden /></button>
     </div>
+      {w.setup_pending && !w.paused && <FinishSetup watch={w} refresh={query.refetch} />}
       {selected === "remove" && <RemoveWatch watch={w} cancel={() => setDetail(null)}
         removed={() => { setDetail(null); void query.refetch(); }} />}
       {selected === "open" && <div className="mm-actions"><button onClick={() => openSource(w)}>В браузере ↗</button>
@@ -139,15 +115,16 @@ export function SubscriptionList({ query, threadId }: { query: ReturnType<typeof
     </div>;
   }
   return <section className={threadId ? "mm-ui mm-widget" : "mm-ui"}>
-    <header>{threadId ? <button onClick={() => nav.toPluginPanel("subscriptions", { subPath: "list" })}>Все подписки</button>
-      : null}
+    <header className="mm-create-bar">
+      {threadId && <button onClick={() => nav.toPluginPanel("subscriptions", { subPath: "list" })}>Все подписки</button>}
+      <button type="button" className="mm-icon" aria-label="Добавить подписку" title="Добавить подписку"
+        aria-expanded={creating} disabled={creating} onClick={() => setDetail({ kind: "create" })}>
+        <Icon name="Plus" className="mm-action-glyph" aria-hidden />
+      </button>
     </header>
+    {creating && <WatchEditor threadId={threadId} close={() => { setDetail(null); void query.refetch(); }} />}
     {query.error && <div role="alert">Ошибка загрузки подписок <button onClick={() => void query.refetch()}>Повторить</button></div>}
-    <>
-      {!threadId && <div className="mm-tabs"><button aria-pressed={!grouped} onClick={() => setGrouped(false)}>Список подписок</button>
-        <button aria-pressed={grouped} onClick={() => setGrouped(true)}>По тредам BB</button></div>}
-      {!rows.length && !query.error && <p>{query.isLoading ? "Загрузка…" : "Подписок пока нет. Отправьте в BB-тред ссылку Mattermost и напишите «следи»."}</p>}
-      {grouped ? [...groups].map(([id, items]) => <details key={id} open><summary>{names.get(id) ?? id} · {items.length}</summary>{items.map(row)}</details>) : rows.map(row)}
-    </>
+    {!rows.length && !creating && !query.error && <p>{query.isLoading ? "Загрузка…" : "Подписок пока нет. Нажми «+», чтобы добавить канал или ветку."}</p>}
+    {grouped ? [...groups].map(([id, items]) => <details key={id} open><summary>{names.get(id) ?? id} · {items.length}</summary>{items.map(row)}</details>) : rows.map(row)}
   </section>;
 }

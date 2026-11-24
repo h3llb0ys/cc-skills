@@ -43,7 +43,7 @@ def versions(posts):
 def public(state):
     return {k: v for k, v in state.items()
             if k in ("id", "url", "platform", "chat", "owner", "interval", "rule", "push",
-                     "until", "schedule", "paused", "timezone", "push_problem", "source_problem", "last_checked_at", "destination", "kind", "channel", "title", "draft", "status")}
+                     "until", "schedule", "setup_pending", "paused", "timezone", "push_problem", "source_problem", "last_checked_at", "destination", "kind", "channel", "title", "draft", "status")}
 
 
 def run(args, stdin=None):
@@ -116,7 +116,7 @@ def matching_schedules(state):
 
 
 def enable(state):
-    if state["paused"]:
+    if state["paused"] or (state.get("until") and time.time() >= state["until"]):
         raise ValueError("This watch has ended")
     bb = state["platform"] == "bb"
 
@@ -136,6 +136,7 @@ def enable(state):
     if len(found) != 1:
         raise ValueError("Cannot uniquely identify native schedule; inspect automations before retry")
     state["schedule"] = found[0]["id"]
+    state.pop("setup_pending", None)
     return public(state)
 
 
@@ -369,11 +370,21 @@ def handle(args):
             row = db.execute("SELECT data FROM watches WHERE id=?", (key,)).fetchone()
             if row:
                 state = json.loads(row[0])
+                if args.new:
+                    if state["schedule"] or not state.get("setup_pending") or state["paused"]:
+                        raise ValueError("Этот источник уже подключён к выбранному треду BB")
+                    expected = dict(rule=args.rule, interval=args.interval, destination=args.destination or "chat",
+                                    draft=args.draft, push=args.push, until=args.until, timezone=args.timezone)
+                    if any(state.get(k) != v for k, v in expected.items()):
+                        raise ValueError("Подписка уже создана с другими условиями. Проверь её в списке подписок.")
+                    return public(state)
                 if state["paused"]:
                     raise ValueError("Remove the stopped subscription with unwatch before restarting")
             else:
                 state = dict(id=key, seen=versions(posts), schedule=None, auth_notified=False, paused=False,
                              window_start=posts[0]["create_at"] if posts else now * 1000)
+            if args.new:
+                state["setup_pending"] = True
             state["destination"] = args.destination or state.get("destination", "chat")
             state.update(last_checked_at=int(time.time()), kind=kind, title=args.title or title, channel=channel_name, draft=args.draft,
                          url=url, owner=args.owner, chat=args.chat, platform=args.platform,
@@ -425,7 +436,15 @@ def handle(args):
                 state["pending_push"] = False
                 state.pop("push_problem", None)
             result = public(state)
-        elif args.action == "enable":
+        elif args.action in ("enable", "finish-setup"):
+            if args.action == "finish-setup":
+                if (state["platform"], state["owner"], state["chat"]) != ("bb", args.owner, args.chat):
+                    raise ValueError("Подписка принадлежит другому треду BB")
+                if not state.get("setup_pending"):
+                    if state["schedule"] and not state["paused"]:
+                        return public(state)  # A concurrent activation already completed.
+                    raise ValueError("Подписка не ожидает включения")
+                state["environment"] = args.environment
             result = enable(state)
         elif args.action == "unwatch":
             if args.platform and state["platform"] != args.platform:
