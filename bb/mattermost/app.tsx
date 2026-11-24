@@ -1,0 +1,160 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  definePluginApp, experimental_useRpcQuery, experimental_useSidebarThreads,
+  useBbNavigate, useComposer, useRealtime, useRpc,
+} from "@get-bb/plugin-sdk/app";
+import { ColorPalette } from "../shared-ui/color-palette";
+import "../shared-ui/color-palette.css";
+import { contract, defaults, labels, type Signal, type Watch } from "./contract";
+import "./app.css";
+
+type Colors = Record<Signal, string | null>;
+type Detail = { kind: "edit" | "open"; id: string } | null;
+
+function Marker({ status, colors }: { status: Watch["status"]; colors: Colors }) {
+  return !status || status === "normal" ? null : <span className="mm-marker">
+    <i style={{ backgroundColor: colors[status] ?? defaults[status] }} />{labels[status]}
+  </span>;
+}
+
+function MessageStatus({ attributes }: { attributes: Readonly<Record<string, string>> }) {
+  const query = experimental_useRpcQuery({ contract, method: "colors", input: null });
+  useRealtime("colors", () => { void query.refetch(); });
+  const status = attributes.status;
+  if (status !== "answer" && status !== "attention" && status !== "resolved") return null;
+  return <span className="mm-ui"><Marker status={status} colors={query.data ?? defaults} /></span>;
+}
+
+function localDate(seconds: number | null) {
+  if (seconds === null) return "";
+  const date = new Date(seconds * 1000);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function WatchEditor({ watch, close }: { watch: Watch; close(): void }) {
+  const rpc = useRpc<typeof contract>();
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  return <form className="mm-sheet" onSubmit={async event => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const end = String(data.get("until"));
+    setSaving(true);
+    try {
+      await rpc.call("edit", { id: watch.id, interval: Number(data.get("interval")), rule: String(data.get("rule")),
+        push: String(data.get("push")).trim() || null, draft: data.has("draft"),
+        until: end ? Math.floor(new Date(end).getTime() / 1000) : null });
+      close();
+    } catch (cause) { setError(String(cause)); } finally { setSaving(false); }
+  }}>
+    <div className="mm-fields">
+      <label>Интервал, минуты<input name="interval" type="number" min="1" required defaultValue={watch.interval} /></label>
+      <label>Следить до (местное время)<input type="datetime-local" name="until" defaultValue={localDate(watch.until)} /></label>
+      <label className="wide">Когда сообщать<textarea required name="rule" defaultValue={watch.rule} /></label>
+      <label className="wide">Когда отправлять push<input name="push" placeholder="Выключен" defaultValue={watch.push ?? ""} /></label>
+      <label className="mm-check wide"><input type="checkbox" name="draft" defaultChecked={watch.draft} />Добавлять черновик ответа</label>
+    </div>
+    {error && <p role="alert">{error}</p>}
+    <div className="mm-actions"><button disabled={saving} type="submit">Сохранить</button><button type="button" onClick={close}>Отмена</button></div>
+  </form>;
+}
+
+function Palette({ colors }: { colors: Colors }) {
+  const rpc = useRpc<typeof contract>();
+  const [selected, select] = useState<Signal>("answer");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return <div className="mm-sheet"><div className="mm-tabs" aria-label="Цвет статуса">
+    {(Object.keys(labels) as Signal[]).map(s => <button key={s} aria-pressed={s === selected} onClick={() => select(s)}>
+      <Marker status={s} colors={colors} /></button>)}
+  </div><fieldset disabled={busy}><ColorPalette color={colors[selected]} commitCustomColor onChange={async color => {
+    setBusy(true);
+    try { await rpc.call("color", { status: selected, color }); setError(""); }
+    catch (cause) { setError(String(cause)); } finally { setBusy(false); }
+  }} /></fieldset>{error && <p role="alert">{error}</p>}</div>;
+}
+
+function Subscriptions({ threadId }: { threadId?: string }) {
+  const nav = useBbNavigate();
+  const { threads } = experimental_useSidebarThreads();
+  const query = experimental_useRpcQuery({ contract, method: "list", input: null });
+  const refresh = useRef(query.refetch);
+  refresh.current = query.refetch;
+  useRealtime("changed", () => { void refresh.current(); });
+  useEffect(() => {
+    const poll = () => { if (!document.hidden) void refresh.current(); };
+    const id = window.setInterval(poll, 30000);
+    document.addEventListener("visibilitychange", poll);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", poll); };
+  }, []);
+  const [grouped, setGrouped] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [detail, setDetail] = useState<Detail>(null);
+  const [error, setError] = useState("");
+  const rows = (query.data?.watches ?? []).filter(w => !threadId || w.chat === threadId);
+  const colors = query.data?.colors ?? defaults;
+  if (threadId && !rows.length && !query.error) return null;
+  const names = new Map(threads.map(t => [t.id, t.displayTitle]));
+  const groups = new Map<string, Watch[]>();
+  for (const w of rows) {
+    if (!groups.has(w.chat)) groups.set(w.chat, []);
+    groups.get(w.chat)!.push(w);
+  }
+
+  function openSource(w: Watch, desktop: boolean) {
+    // The RPC contract accepts HTTPS permalinks only; preserve server subpaths.
+    const url = desktop ? w.url.replace(/^https:/, "mattermost:") : w.url;
+    if (nav.openUrl(url)) { setError(""); setDetail(null); }
+    else setError("Клиент не поддерживает эту ссылку. Откройте в браузере.");
+  }
+  function row(w: Watch) {
+    const title = w.title || w.url.split("/").pop();
+    const selected = detail?.id === w.id ? detail.kind : null;
+    return <div className="mm-item" key={w.id}><div className="mm-line">
+      <button className="mm-main" onClick={() => nav.toThread(w.chat)} title={`Открыть BB · ${names.get(w.chat) ?? w.chat}`}>
+        <span className="mm-title"><strong>{title}</strong><small>{w.kind === "channel" ? "Канал" : "Ветка"}</small>
+          <Marker status={w.status} colors={colors} /></span>
+        <span className="mm-meta">{w.channel && `#${w.channel} · `}{w.interval} мин
+          {!grouped && !threadId && ` · BB: ${names.get(w.chat) ?? w.chat}`}
+          {w.paused ? " · Завершено" : !w.schedule ? " · Без расписания" : ""}</span>
+        <span className="mm-rule">{w.rule}</span>
+        {w.source_problem && <span role="alert">{w.source_problem}</span>}
+        {w.push_problem && <span className="mm-meta">Push ожидает доставки</span>}
+      </button>
+      <button className="mm-icon" disabled={!!w.source_problem} title="Открыть в Mattermost" aria-label={`Открыть в Mattermost: ${title}`}
+        onClick={() => { setError(""); setDetail(selected === "open" ? null : { kind: "open", id: w.id }); }}>↗</button>
+      <button className="mm-icon" title="Настройки подписки" aria-label={`Настройки: ${title}`}
+        onClick={() => setDetail(selected === "edit" ? null : { kind: "edit", id: w.id })}>⚙</button>
+    </div>
+      {selected === "open" && <div className="mm-actions"><button onClick={() => openSource(w, false)}>В браузере ↗</button>
+        <button onClick={() => openSource(w, true)}>В приложении ↗</button>{error && <span role="alert">{error}</span>}</div>}
+      {selected === "edit" && w.paused && <p>Наблюдение завершено · {w.rule}</p>}
+      {selected === "edit" && !w.paused && <WatchEditor watch={w} close={() => { setDetail(null); void refresh.current(); }} />}
+    </div>;
+  }
+  return <section className={threadId ? "mm-ui mm-widget" : "mm-ui mm-panel"}>
+    <header>{threadId ? <><button aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+      {expanded ? "▾" : "▸"} Наблюдение Mattermost · {rows.length}</button><button onClick={() => nav.toPluginPanel("subscriptions")}>Все подписки</button></>
+      : <><h2>Подписки Mattermost</h2><button aria-expanded={paletteOpen} onClick={() => setPaletteOpen(!paletteOpen)}>Цвета</button></>}
+    </header>
+    {query.error && <div role="alert">Ошибка загрузки подписок <button onClick={() => void refresh.current()}>Повторить</button></div>}
+    {(!threadId || expanded) && <>
+      {!threadId && <div className="mm-tabs"><button aria-pressed={!grouped} onClick={() => setGrouped(false)}>Список подписок</button>
+        <button aria-pressed={grouped} onClick={() => setGrouped(true)}>По тредам BB</button></div>}
+      {paletteOpen && <Palette colors={colors} />}
+      {!rows.length && !query.error && <p>{query.isLoading ? "Загрузка…" : "Подписок пока нет. Отправьте в BB-тред ссылку Mattermost и напишите «следи»."}</p>}
+      {grouped ? [...groups].map(([id, items]) => <details key={id} open><summary>{names.get(id) ?? id} · {items.length}</summary>{items.map(row)}</details>) : rows.map(row)}
+    </>}
+  </section>;
+}
+
+function Widget() {
+  const { scope } = useComposer();
+  return scope.kind === "thread" ? <Subscriptions key={scope.threadId} threadId={scope.threadId} /> : null;
+}
+export default definePluginApp(app => {
+  app.slots.messageDirective({ id: "mattermost-status", component: MessageStatus });
+  app.slots.navPanel({ id: "subscriptions", path: "subscriptions", title: "Mattermost", icon: "MessageSquare", component: () => <Subscriptions /> });
+  app.composer.customize({ id: "subscriptions", scopes: ["thread"], banners: [{ id: "watch", chrome: "bare", component: Widget }] });
+});

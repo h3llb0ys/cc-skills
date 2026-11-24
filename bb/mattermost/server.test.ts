@@ -1,0 +1,43 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, it } from "vitest";
+import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import plugin from "./server";
+import { contract } from "./contract";
+
+it("lists and edits the scheduler's SQLite records in place, preserving cursors and other destinations", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mm-rpc-"));
+  const id = "a".repeat(20);
+  const init = `import json,sys,sqlite3
+db=sqlite3.connect(sys.argv[1])
+db.execute("create table watches (id text primary key, data text not null)")
+row=dict(id=sys.argv[2], chat="thread1", owner="proj1", rule="QA", interval=5, until=None, push=None,
+         status="answer", url="https://mm.example/team/pl/abc", platform="bb", seen={"p":123},
+         paused=False, schedule="job", timezone="UTC")
+db.execute("insert into watches values (?,?)",(row["id"],json.dumps(row)))
+row.update(id="b"*20,platform="orca")
+db.execute("insert into watches values (?,?)",(row["id"],json.dumps(row)))
+db.commit()`;
+  type Handlers = {
+    list(): Promise<unknown>;
+    edit(input: {id:string; interval:number; rule:string; push:null; draft:boolean; until:null}): Promise<null>;
+  };
+  let handlers!: Handlers;
+  try {
+    execFileSync("python3", ["-c", init, join(dir,"watches.sqlite3"), id]);
+    plugin({ agents:{contributeInstructions:()=>{}}, pluginId:"mattermost", settings:{define:()=>({get:async()=>({stateDirectory:dir})})},
+      sdk:{plugins:{list:async()=>({plugins:[{id:"mattermost",rootDir:process.cwd()}]})}},
+      storage:{kv:{get:async()=>undefined}},realtime:{publish:()=>{}},
+      rpc:{register: (_:unknown,h:Handlers)=>{handlers=h;}} } as unknown as BbPluginApi);
+    const read = async () => contract.list.output.parse(await handlers.list()).watches;
+    expect(await read()).toMatchObject([{id,status:"answer",interval:5}]);
+    const input = {id,interval:12,rule:"Только апрув",push:null,draft:true,until:null};
+    await handlers.edit(input);
+    expect(await read()).toMatchObject([{...input,status:"answer",schedule:"job"}]);
+    await expect(handlers.edit({...input,id:"b".repeat(20)})).rejects.toThrow("Only active BB");
+    const cursor = execFileSync("python3", ["-c", 'import sqlite3,sys,json;print(json.loads(sqlite3.connect(sys.argv[1]).execute("select data from watches where id=?",(sys.argv[2],)).fetchone()[0])["seen"]["p"])',join(dir,"watches.sqlite3"),id]);
+    expect(cursor.toString().trim()).toBe("123");
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
