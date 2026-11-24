@@ -33,6 +33,15 @@ export const rowSchema = z.object({
   windows: z.array(windowSchema),
 });
 export type Row = z.infer<typeof rowSchema>;
+
+export const statusText: Record<Row["status"], string> = {
+  ok: "Данные получены",
+  error: "Провайдер не вернул лимиты",
+  expired: "Вход истёк",
+  unauthenticated: "Требуется вход",
+  not_installed: "Не установлен",
+};
+
 export const snapshotSchema = z.object({
   rows: z.array(rowSchema),
   updatedAt: z.number().nullable(),

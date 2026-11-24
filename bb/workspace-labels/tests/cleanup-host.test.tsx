@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import host from '../cleanup-host';
+import host from '../host';
 
 test('protects live environment paths inside the worktree, including aliases', async t => {
   const root = mkdtempSync(join(tmpdir(), 'workspace-tools-paths-'));

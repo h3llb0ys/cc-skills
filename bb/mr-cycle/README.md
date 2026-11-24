@@ -80,4 +80,4 @@ bb plugin build . && bb plugin reload mr-cycle
 | `store.ts` | чтение и запись metadata треда |
 | `contract.ts` | RPC-контракт, общий для сервера и интерфейса |
 | `server.ts` | регистрация RPC и команды |
-| `app.tsx`, `cycle-view.tsx`, `icons.tsx` | плашка, секция карточки, бейдж |
+| `app.tsx`, `components/cycle-view.tsx`, `components/icons.tsx` | плашка, секция карточки, бейдж |

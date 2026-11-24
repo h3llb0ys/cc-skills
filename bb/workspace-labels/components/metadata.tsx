@@ -1,7 +1,7 @@
-import type { Environment, Layout } from './labels';
-import { workspaceLabels } from './labels';
-import type { GitStatus } from './git';
-import { colorStyle, type WorkspaceColors } from './colors';
+import type { Environment, Layout } from '../sidebar/labels';
+import { workspaceLabels } from '../sidebar/labels';
+import type { GitStatus } from '../sidebar/git';
+import { colorStyle, type WorkspaceColors } from '../sidebar/colors';
 
 function Glyph({ kind }: { kind: 'branch' | 'worktree' }) {
   return <svg className="workspace-labels-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

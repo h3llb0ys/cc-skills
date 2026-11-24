@@ -5,10 +5,10 @@ import {
   useSettings,
 } from '@get-bb/plugin-sdk/app';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { cleanupRpc, type WorktreeRow } from './cleanup-contract';
-import { archiveWorktree } from './cleanup-ui';
-import { useWorkspaceColors } from './color-settings';
-import { colorStyle } from './colors';
+import { cleanupRpc, type WorktreeRow } from './cleanup/contract';
+import { archiveWorktree } from './cleanup/overlay';
+import { useWorkspaceColors } from './components/color-settings';
+import { colorStyle } from './sidebar/colors';
 
 function WorktreeList({ threadId, inInfo }: { threadId: string; inInfo?: boolean }) {
   const { values } = useSettings();

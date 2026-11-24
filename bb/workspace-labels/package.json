@@ -14,7 +14,7 @@
     },
     "server": "./server.ts",
     "app": "./app.tsx",
-    "host": "./cleanup-host.ts"
+    "host": "./host.ts"
   },
   "dependencies": {
     "@get-bb/plugin-sdk": "0.6.132",

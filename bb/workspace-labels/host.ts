@@ -1,8 +1,8 @@
 import { realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { experimental_defineHostEntry } from '@get-bb/plugin-sdk/host';
-import { hostCleanup } from './cleanup-contract';
-import { identifyWorktree, inspectWorktree, removeCheckout, removeLocalBranch, worktreeState } from './cleanup-git';
+import { hostCleanup } from './cleanup/contract';
+import { identifyWorktree, inspectWorktree, removeCheckout, removeLocalBranch, worktreeState } from './cleanup/git';
 
 export default experimental_defineHostEntry({
   contract: hostCleanup,

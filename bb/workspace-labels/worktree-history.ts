@@ -1,6 +1,6 @@
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { createHash } from 'node:crypto';
-import { worktreeHistoryTag, worktreeTag, type LinkedWorktree } from './cleanup-contract';
+import { worktreeHistoryTag, worktreeTag, type LinkedWorktree } from './cleanup/contract';
 
 export type HistoryEntry = {
   key: string;

@@ -10,7 +10,7 @@ async function mount(handlers: {list:()=>unknown;save:(input:unknown)=>unknown},
  const {createElement}=await import('react');
  const {definePluginApp}=await import('@get-bb/plugin-sdk/app');
  const {loadPluginApp,renderSlot}=await import('@get-bb/plugin-sdk/testing/app');
- const {EditorLoader}=await import('../editor');
+ const {EditorLoader}=await import('../components/editor');
  const app=await loadPluginApp(async()=>({default:definePluginApp(app=>{
   app.slots.experimental_appOverlay({id:'editor',component:()=>createElement(EditorLoader,{target:{key:'section:sec_a',name:'Section'},onClose,onSaved:()=>{}})});
  })}));

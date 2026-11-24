@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import Database from 'better-sqlite3';
 import type { BbPluginApi, PluginRpcHandlers } from '@get-bb/plugin-sdk';
-import { cleanupRpc, type LinkedWorktree } from '../cleanup-contract';
-import { registerCleanup } from '../cleanup-server';
+import { cleanupRpc, type LinkedWorktree } from '../cleanup/contract';
+import { registerCleanup } from '../cleanup/server';
 
 function fixture(t?: { after: (callback: () => void) => void }) {
   const db = new Database(':memory:');

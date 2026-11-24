@@ -1,0 +1,48 @@
+.mm-ui { color:var(--foreground); font:inherit; font-size:13px }
+.mm-panel { padding:16px; max-width:920px; margin:auto }
+.mm-widget { border-left:2px solid var(--border); margin:4px 0; padding-left:8px }
+.mm-ui header,.mm-line,.mm-tabs,.mm-actions,.mm-title { display:flex; align-items:center; gap:6px }
+.mm-ui header { justify-content:space-between; padding-bottom:5px }
+.mm-ui h2 { font-size:18px; font-weight:600; margin:0 }
+.mm-ui button,.mm-ui summary { cursor:pointer }
+.mm-ui button:not(.mm-main):not(.cc-color-palette-swatch) { padding:3px 6px; border-radius:5px }
+.mm-ui button:hover:not(.cc-color-palette-swatch),.mm-tabs [aria-pressed=true] { background:var(--muted) }
+.mm-ui button:focus-visible,.mm-ui summary:focus-visible { outline:2px solid var(--ring) }
+.mm-item { border-top:1px solid var(--border) }
+.mm-main { text-align:left; min-width:0; flex:1; padding:5px 2px; overflow-wrap:anywhere }
+.mm-title { flex-wrap:wrap; row-gap:0 }
+.mm-title small,.mm-meta,.mm-rule { font-size:12px; color:var(--muted-foreground) }
+.mm-meta,.mm-rule { display:block }
+.mm-marker { display:inline-flex; align-items:center; gap:4px; font-size:11px; white-space:nowrap }
+.mm-marker i { width:8px; height:8px; border-radius:50%; box-shadow:0 0 0 1px var(--border) }
+.mm-icon { display:inline-grid; place-items:center; flex:none; width:30px; height:30px; border:1px solid var(--border) }
+.mm-ui .mm-action-glyph { width:15px; height:15px; stroke-width:1.75 }
+.mm-tabs,.mm-actions { flex-wrap:wrap; margin:5px 0 }
+.mm-ui summary { background:var(--muted); padding:4px 6px; margin-top:5px }
+.mm-sheet { background:var(--card); border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:6px }
+.mm-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:5px 8px }
+.mm-fields label { display:grid; gap:2px; font-size:12px }
+.mm-fields .wide { grid-column:1/-1 }
+.mm-fields input,.mm-fields textarea { min-width:0; background:var(--background); border:1px solid var(--border); border-radius:4px; padding:4px }
+.mm-fields .mm-check { display:flex; align-items:center; gap:5px }
+.mm-ui [role=alert] { color:var(--destructive-text) }
+
+.mm-context { display:grid; gap:5px; min-width:0; font-size:12px }
+.mm-context-title,.mm-context-meta { display:flex; align-items:center; gap:5px; min-width:0 }
+.mm-context-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.mm-context-title a { display:inline-flex; align-items:center; padding:0 3px; color:inherit }
+.mm-context-meta,.mm-context-item small { font-size:11px; color:var(--muted-foreground) }
+.mm-context-meta { flex-wrap:wrap; row-gap:0 }
+
+.mm-inbox { padding:4px 8px; min-width:0 }
+.mm-inbox header,.mm-inbox nav,.mm-event-meta { display:flex; flex-wrap:wrap; align-items:center; gap:5px }
+.mm-inbox small,.mm-event-meta { font-size:11px; color:var(--muted-foreground) }
+.mm-inbox .mm-event { display:grid; justify-items:start; gap:5px; border-top:1px solid var(--border); padding-top:6px }
+.mm-inbox .mm-summary-body { margin:0; white-space:pre-wrap; overflow-wrap:anywhere }
+.mm-inbox details,.mm-inbox textarea,.mm-history-row { width:100% }
+.mm-inbox textarea,.mm-fields select { background:var(--background); color:inherit; border:1px solid var(--border); padding:4px }
+.mm-inbox textarea { min-height:4em }
+.mm-history-row { display:block; text-align:left; border-top:1px solid var(--border) }
+.mm-inbox a { text-decoration:underline; text-underline-offset:2px }
+.mm-inbox .mm-primary,.mm-inbox [aria-pressed=true] { background:var(--muted); font-weight:600 }
+.mm-inbox .mm-widget { border:0; padding:0 }

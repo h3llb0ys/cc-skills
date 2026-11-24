@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, type TestContext } from 'node:test';
 import { JSDOM } from 'jsdom';
-import { adaptiveRows } from '../adaptive';
+import { adaptiveRows } from '../sidebar/adaptive';
 
 function fixture(t: TestContext) {
   const dom = new JSDOM(`<section class="list"><div data-sidebar-rename-row><span class="content"><a data-sidebar-thread-id="t"></a><span class="title-line"><span class="bb-thread-title">Title</span><a data-jira-task-link href="https://jira.example/T-1">T-1</a></span><span class="metadata-line"><span data-thread-row-metadata><div><span class="workspace-labels" data-workspace-auto-inline="true"><span data-workspace-kind="branch">main</span></span></div></span></span></span></div></section>`);

@@ -1,8 +1,8 @@
-import { ColorPalette } from '../shared-ui/color-palette';
+import { ColorPalette } from '../../shared-ui/color-palette';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRealtime, useRealtimeConnectionState, useRpc } from '@get-bb/plugin-sdk/app';
-import type { rpcContract } from './server';
-import type { SidebarAppearance } from './lib/sidebar-appearance';
+import type { rpcContract } from '../server';
+import type { SidebarAppearance } from '../lib/sidebar-appearance';
 
 export function useSidebarAppearance() {
   const rpc = useRpc<typeof rpcContract>();

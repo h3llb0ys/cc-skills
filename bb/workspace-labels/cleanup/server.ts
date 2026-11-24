@@ -1,7 +1,7 @@
 import { cliCommand, defineCli, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { createHash } from 'node:crypto';
-import { cleanupRpc, hostCleanup, linkedWorktreeSchema, worktreeHistoryTag, worktreeTag, type CleanupAction, type CleanupRequestInput, type LinkedWorktree, type WorktreeRow } from './cleanup-contract';
-import { createWorktreeHistory, worktreeKey as bindingKey, type HistoryEntry } from './worktree-history';
+import { cleanupRpc, hostCleanup, linkedWorktreeSchema, worktreeHistoryTag, worktreeTag, type CleanupAction, type CleanupRequestInput, type LinkedWorktree, type WorktreeRow } from './contract';
+import { createWorktreeHistory, worktreeKey as bindingKey, type HistoryEntry } from '../worktree-history';
 
 type ListedThread = Awaited<ReturnType<BbPluginApi['sdk']['threads']['list']>>[number];
 type HistoryThread = Pick<ListedThread, 'id' | 'title' | 'environmentId'>;

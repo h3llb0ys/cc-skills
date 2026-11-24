@@ -1,8 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { fitsInline } from './adaptive';
-import { workspaceLabels, type Environment, type Layout } from './labels';
+import { fitsInline } from '../sidebar/adaptive';
+import { workspaceLabels, type Environment, type Layout } from '../sidebar/labels';
 import { WorkspaceMetadata } from './metadata';
-import { colorStyle, type WorkspaceColors } from './colors';
+import { colorStyle, type WorkspaceColors } from '../sidebar/colors';
 
 type Example = { title: string; environment: Environment; tasks: string[] };
 const examples: Example[] = [

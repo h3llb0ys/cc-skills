@@ -1,7 +1,7 @@
-import { ColorPalette } from '../shared-ui/color-palette';
+import { ColorPalette } from '../../shared-ui/color-palette';
 import { experimental_useRpcQuery, useRpc } from '@get-bb/plugin-sdk/app';
 import { useState, type ReactNode } from 'react';
-import { colorsRpc, defaultColors, type WorkspaceColors } from './colors';
+import { colorsRpc, defaultColors, type WorkspaceColors } from '../sidebar/colors';
 
 export function useWorkspaceColors() {
   return experimental_useRpcQuery({ contract: colorsRpc, method: 'labelColors', input: null });

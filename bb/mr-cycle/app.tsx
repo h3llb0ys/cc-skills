@@ -11,8 +11,8 @@ import {
 } from "@get-bb/plugin-sdk/app";
 
 import { rpcContract } from "./contract";
-import { caption, CycleView, heading, ProgressRing } from "./cycle-view";
-import { ChecklistIcon, CYCLE_ICON } from "./icons";
+import { caption, CycleView, heading, ProgressRing } from "./components/cycle-view";
+import { ChecklistIcon, CYCLE_ICON } from "./components/icons";
 import { progress, type Cycle } from "./model";
 
 type Cycles = Record<string, Cycle | null>;
