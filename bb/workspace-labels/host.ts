@@ -1,4 +1,4 @@
-import { realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { experimental_defineHostEntry } from '@get-bb/plugin-sdk/host';
 import { hostCleanup } from './cleanup/contract';
@@ -8,6 +8,16 @@ export default experimental_defineHostEntry({
   contract: hostCleanup,
   handlers: {
     identify: (input, { signal }) => identifyWorktree(input, signal),
+    async worktreePathMissing({ path }) {
+      if (!isAbsolute(path)) throw new Error('Для проверки нужен абсолютный путь worktree.');
+      try {
+        await lstat(path);
+        return false;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
+        throw error;
+      }
+    },
     async worktreeStates({ paths }, { signal }) {
       return Object.fromEntries(await Promise.all(paths.map(async ({ key, path, expected }) => [
         key, await worktreeState(path, expected, signal),

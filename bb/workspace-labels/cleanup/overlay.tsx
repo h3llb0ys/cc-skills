@@ -30,7 +30,6 @@ export function cleanupAction(action: CleanupAction): PluginThreadActionRegistra
     icon,
     group: experimental_THREAD_ACTION_GROUPS.lifecycle,
     item({ thread }) {
-      if (!thread.environment?.path && thread.archivedAt === null) return null;
       return { label, icon, run: () => {
         if (!request) setRequest({ threadId: thread.id, action });
       } };
@@ -56,15 +55,17 @@ function CleanupRequest({ current }: { current: Request }) {
   const standalone = current.action === 'worktree';
 
   async function execute(plan: Preview) {
-    const toastId = toast.loading(standalone ? 'Очистка worktree…' : 'Очистка рабочего окружения…');
+    const toastId = toast.loading(current.action === 'archive' && plan.nativeLifecycle && !plan.inspection
+      ? 'Архивация…' : standalone ? 'Очистка worktree…' : 'Очистка рабочего окружения…');
     setBusy(true);
     try {
       const result = await call('execute', {
         ...current,
         token: plan.token,
-        discardFiles: plan.inspection.fileCount > 0,
-        discardCommits: plan.inspection.unmergedCount > 0,
+        discardFiles: (plan.inspection?.fileCount ?? 0) > 0,
+        discardCommits: (plan.inspection?.unmergedCount ?? 0) > 0,
         confirmDelete: deleting,
+        confirmArchive: current.action === 'archive' && Boolean(plan.nativeLifecycle),
       });
       if (result.state === 'done') {
         toast.success(result.message, { id: toastId });
@@ -82,7 +83,7 @@ function CleanupRequest({ current }: { current: Request }) {
     let cancelled = false;
     void call('prepare', current).then(plan => {
       if (cancelled) return;
-      if (!deleting && !plan.inspection.fileCount && !plan.inspection.unmergedCount) {
+      if (!deleting && !plan.nativeLifecycle && !plan.inspection?.fileCount && !plan.inspection?.unmergedCount) {
         void execute(plan);
       } else {
         setPreview(plan);
@@ -96,8 +97,12 @@ function CleanupRequest({ current }: { current: Request }) {
   }, [current, call, deleting]);
 
   if (!preview) return null;
-  const { inspection } = preview;
-  const destructive = inspection.fileCount > 0 || inspection.unmergedCount > 0;
+  const { inspection, nativeLifecycle } = preview;
+  const destructive = Boolean(inspection?.fileCount || inspection?.unmergedCount);
+  const relatedThreadCount = nativeLifecycle?.relatedThreadCount ?? 0;
+  const actionLabel = current.action === 'archive' && nativeLifecycle && !inspection
+    ? (relatedThreadCount ? 'Архивировать группу' : 'Архивировать тред')
+    : labels[current.action];
   return (
     <Dialog.Root open onOpenChange={open => { if (!open && !busy) setRequest(null); }}>
       <Dialog.Portal>
@@ -106,17 +111,21 @@ function CleanupRequest({ current }: { current: Request }) {
           event.preventDefault();
           cancelButton.current?.focus();
         }}>
-          <Dialog.Title>{labels[current.action]}</Dialog.Title>
+          <Dialog.Title>{actionLabel}</Dialog.Title>
           <Dialog.Description>
-            {preview.title} · {inspection.branch ?? inspection.head.slice(0, 8)}
+            {preview.title}{inspection && ` · ${inspection.branch ?? inspection.head.slice(0, 8)}`}
           </Dialog.Description>
-          <p className="workspace-cleanup-path">{preview.path}</p>
+          {preview.path && <p className="workspace-cleanup-path">{preview.path}</p>}
           {deleting && <p>История треда будет удалена без возможности восстановления.</p>}
+          {relatedThreadCount > 0 && (
+            <p>BB архивирует связанные треды ({relatedThreadCount}). Внешние worktree можно очистить отдельно в виджете Worktrees.</p>
+          )}
+          {nativeLifecycle && <p>BB может удалить управляемые окружения вместе с локальными файлами.</p>}
           {standalone && <p>Будут удалены worktree и его локальная ветка.</p>}
-          {inspection.fileCount > 0 && (
+          {inspection && inspection.fileCount > 0 && (
             <p>Будут удалены незакоммиченные и игнорируемые файлы ({inspection.fileCount}).</p>
           )}
-          {inspection.unmergedCount > 0 && (
+          {inspection && inspection.unmergedCount > 0 && (
             <p>{inspection.branch
               ? `В ветке есть невлитые коммиты (${inspection.unmergedCount}). Ветка будет удалена.`
               : `В worktree есть невлитые коммиты (${inspection.unmergedCount}). Они могут стать недоступны.`}</p>
@@ -126,7 +135,7 @@ function CleanupRequest({ current }: { current: Request }) {
             <button type="button" className="workspace-cleanup-danger"
               disabled={busy}
               onClick={() => void execute(preview)}>
-              {destructive ? 'Удалить принудительно' : labels[current.action]}
+              {destructive ? 'Удалить принудительно' : actionLabel}
             </button>
           </footer>
         </Dialog.Content>

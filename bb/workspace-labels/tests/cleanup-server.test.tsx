@@ -13,10 +13,10 @@ function fixture(t?: { after: (callback: () => void) => void }) {
     files: [], fileCount: 0, commits: [], unmergedCount: 0, unmergedFingerprint: 'clean', fingerprint: 'same',
   };
   const thread = {
-    id: 'thread', title: 'Подзадача', environmentId: 'env', status: 'idle', archivedAt: null as number | null,
+    id: 'thread', title: 'Подзадача', environmentId: 'env' as string | null, status: 'idle', archivedAt: null as number | null,
     activity: { activeBackgroundCommandCount: 0 },
   };
-  const peer = { ...thread, id: 'peer' };
+  const peer = { ...thread, id: 'peer', parentThreadId: null as string | null };
   let includePeer = false;
   const environment = {
     id: 'env', hostId: 'host', path: '/worktree', isWorktree: true, defaultBranch: 'main', status: 'ready', managed: false,
@@ -28,7 +28,7 @@ function fixture(t?: { after: (callback: () => void) => void }) {
     branch: 'feature/task', defaultBranch: 'main', baseBranch: 'refs/remotes/origin/main' };
   const bindings = new Map<string, LinkedWorktree>();
   let cli!: Parameters<BbPluginApi['cli']['register']>[0];
-  const faults = { git: false, close: false, resume: false, pluginInWorktree: false };
+  const faults = { git: false, close: false, resume: false, pluginInWorktree: false, missing: false };
   type Dispatch = (context: { thread: typeof thread; environment: typeof environment }) => { action: string };
   let dispatch!: Dispatch;
   let rpc!: PluginRpcHandlers<typeof cleanupRpc>;
@@ -51,6 +51,7 @@ function fixture(t?: { after: (callback: () => void) => void }) {
           key, key.startsWith('native:') ? nativeState : 'available',
         ]));
         if (method === 'worktreePathsInUse') return faults.pluginInWorktree ? ['/worktree/plugin'] : [];
+        if (method === 'worktreePathMissing') return faults.missing;
         if (method === 'inspect') {
           if (faults.resume) thread.status = 'active';
           return input?.path ? {
@@ -95,6 +96,12 @@ function fixture(t?: { after: (callback: () => void) => void }) {
           if (faults.close) throw new Error('BB отказал');
           thread.archivedAt = 1;
           return { ok: true, archivedThreadIds: [thread.id] };
+        },
+        archiveAll: async () => {
+          steps.push('archiveAll');
+          thread.archivedAt = 1;
+          peer.archivedAt = 1;
+          return { ok: true, archivedThreadIds: [thread.id, peer.id] };
         },
         delete: async () => {
           steps.push('delete');
@@ -144,6 +151,79 @@ test('retains external thread history if Git refuses to remove the worktree', as
   assert.equal(result.state, 'failed');
   assert.deepEqual(steps, ['removeCheckout']);
   assert.match(result.message, /Тред сохранён/);
+});
+
+test('archives a thread whose worktree is already gone without touching Git', async t => {
+  const { approval, environment, faults, rpc, steps, thread } = fixture(t);
+  faults.missing = true;
+  environment.status = 'destroyed';
+  const request = { threadId: thread.id, action: 'archive' as const };
+  assert.equal((await rpc.prepare(request)).inspection, null);
+  assert.equal((await rpc.execute(await approval('archive'))).state, 'done');
+  assert.deepEqual(steps, ['archive']);
+});
+
+test('requires a new approval if a missing worktree reappears', async t => {
+  const { approval, faults, rpc, steps } = fixture(t);
+  faults.missing = true;
+  const input = await approval('archive');
+  faults.missing = false;
+  await assert.rejects(async () => rpc.execute(input), /состояние изменилось/i);
+  assert.deepEqual(steps, []);
+});
+
+for (const environmentKind of ['plain', 'none']) {
+  test(`deletes a thread with ${environmentKind} environment only after confirmation`, async t => {
+    const { approval, environment, rpc, steps, thread } = fixture(t);
+    environment.isWorktree = false;
+    if (environmentKind === 'none') thread.environmentId = null;
+    const request = { threadId: thread.id, action: 'delete' as const };
+    const preview = await rpc.prepare(request);
+    assert.equal(preview.inspection, null);
+    assert.equal(preview.path, null);
+    const input = await approval('delete');
+    await assert.rejects(async () => rpc.execute({ ...input, confirmDelete: false }), /подтверждение удаления/i);
+    assert.equal((await rpc.execute(input)).state, 'done');
+    assert.deepEqual(steps, ['delete']);
+  });
+}
+
+test('explains that thread deletion would also delete an archived child', async t => {
+  const { enablePeer, rpc, thread, steps } = fixture(t);
+  const child = enablePeer();
+  child.title = 'Ревью плана';
+  child.parentThreadId = thread.id;
+  child.archivedAt = 1;
+  await assert.rejects(async () => rpc.prepare({ threadId: thread.id, action: 'delete' }),
+    /Удаление затронет.*Ревью плана.*в архиве.*штатное действие BB/);
+  assert.deepEqual(steps, []);
+});
+
+test('archives the whole thread group through BB without manually cleaning its checkout', async t => {
+  const { approval, enablePeer, rpc, thread, steps } = fixture(t);
+  const child = enablePeer();
+  child.parentThreadId = thread.id;
+  const preview = await rpc.prepare({ threadId: thread.id, action: 'archive' });
+  assert.equal(preview.nativeLifecycle?.relatedThreadCount, 1);
+  const input = await approval('archive');
+  await assert.rejects(async () => rpc.execute(input), /подтверждение архивации/i);
+  assert.deepEqual(steps, []);
+  assert.equal((await rpc.execute({ ...input, confirmArchive: true })).state, 'done');
+  assert.equal(child.archivedAt, 1);
+  assert.deepEqual(steps, ['archiveAll']);
+});
+
+test('requires confirmation to archive a managed workspace without a worktree', async t => {
+  const { approval, environment, rpc, steps, thread } = fixture(t);
+  environment.isWorktree = false;
+  environment.managed = true;
+  const preview = await rpc.prepare({ threadId: thread.id, action: 'archive' });
+  assert.equal(preview.nativeLifecycle?.relatedThreadCount, 0);
+  const input = await approval('archive');
+  await assert.rejects(async () => rpc.execute(input), /подтверждение архивации/i);
+  assert.deepEqual(steps, []);
+  assert.equal((await rpc.execute({ ...input, confirmArchive: true })).state, 'done');
+  assert.deepEqual(steps, ['archive']);
 });
 
 test('retains sequential worktrees in a parent widget and cleans the chosen row without closing either thread', async t => {
@@ -323,7 +403,7 @@ test('rejects new turns during cleanup and releases the dispatch guard after a f
 });
 
 
-test('cleans a linked project checkout without touching the thread’s managed personal workspace', async () => {
+test('discloses managed workspace cleanup before archiving a thread with a linked checkout', async () => {
   const { environment, link, rpc, thread, tags, approval, steps } = fixture();
   environment.isWorktree = false;
   environment.managed = true;
@@ -336,7 +416,11 @@ test('cleans a linked project checkout without touching the thread’s managed p
   assert.equal(bindings[thread.id]?.path, '/fraudcore/task');
   assert.equal(preview.path, '/fraudcore/task');
   assert.deepEqual(tags, ['linked-worktree:thread', 'worktree-history']);
-  assert.equal((await rpc.execute(await approval('archive'))).state, 'done');
+  const input = await approval('archive');
+  await assert.rejects(async () => rpc.execute(input), /подтверждение архивации/i);
+  assert.deepEqual(steps, []);
+  assert.equal(preview.nativeLifecycle?.relatedThreadCount, 0);
+  assert.equal((await rpc.execute({ ...input, confirmArchive: true })).state, 'done');
   assert.deepEqual(steps, ['removeCheckout', 'archive', 'removeBranch']);
 });
 

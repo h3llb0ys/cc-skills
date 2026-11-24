@@ -176,8 +176,8 @@ export function registerCleanup(bb: BbPluginApi) {
     }
   }
 
-  async function verifyNoRelatedThreads(threadId: string, action: CleanupAction) {
-    const related = new Map<string, { id: string; archivedAt: number | null }[]>();
+  async function relatedThreads(threadId: string) {
+    const related = new Map<string, ListedThread[]>();
     const threads = await listAll((offset, limit) => bb.sdk.threads.list({ includeHidden: true, offset, limit }));
     for (const thread of threads) {
       const owners = new Set([
@@ -194,42 +194,81 @@ export function registerCleanup(bb: BbPluginApi) {
     }
     const visited = new Set([threadId]);
     const pending = [threadId];
+    const affected: ListedThread[] = [];
     while (pending.length) {
       for (const dependent of related.get(pending.pop()!) ?? []) {
         if (visited.has(dependent.id)) continue;
-        if (action === 'delete' || dependent.archivedAt === null) {
-          throw new Error('Действие затронет связанные треды. Сначала завершите их отдельно.');
-        }
         visited.add(dependent.id);
         pending.push(dependent.id);
+        affected.push(dependent);
       }
+    }
+    return affected;
+  }
+
+  function verifyNoRelatedDeletion(affected: ListedThread[]) {
+    if (affected.length) {
+      const names = affected.slice(0, 3).map(thread => {
+        const title = thread.title?.trim().replace(/\s+/g, ' ').slice(0, 64) || thread.id;
+        return `«${title}»${thread.archivedAt !== null ? ' (в архиве)' : ''}`;
+      });
+      if (affected.length > names.length) names.push(`ещё ${affected.length - names.length}`);
+      throw new Error(`Удаление затронет связанные треды — ${names.join(', ')}. ` +
+        'Для удаления всей группы используйте штатное действие BB «Удалить».');
     }
   }
 
   async function prepare(threadId: string, action: CleanupAction) {
     const thread = await bb.sdk.threads.get({ threadId });
-    if (!thread.environmentId) throw new Error('У треда нет рабочего окружения.');
     if (thread.status !== 'idle' && thread.status !== 'error') {
       throw new Error('Дождитесь окончания работы треда перед очисткой.');
     }
     await verifyWorktreeOwnersIdle([threadId]);
-    const environment = await bb.sdk.environments.get({ environmentId: thread.environmentId });
-    const { hostId } = environment;
-    const binding = environment.isWorktree ? undefined
+    const environmentId = thread.environmentId;
+    const related = await relatedThreads(threadId);
+    if (action === 'delete') verifyNoRelatedDeletion(related);
+    const archiveGroup = action === 'archive'
+      ? related.filter(dependent => dependent.archivedAt === null).map(dependent => dependent.id).sort()
+      : [];
+    const fingerprint = (target: unknown, gitFingerprint: string | null) => createHash('sha256').update(JSON.stringify([
+      threadId, action, thread.archivedAt, environmentId, target, gitFingerprint,
+    ])).digest('hex');
+    const threadState = { environmentId, title: thread.title ?? threadId, archivedAt: thread.archivedAt, archiveGroup,
+      nativeLifecycle: null };
+    if (archiveGroup.length) {
+      return { ...threadState, linked: false, binding: undefined, hostId: null, path: null,
+        target: null, inspection: null, checkoutKey: null, nativeLifecycle: { relatedThreadCount: archiveGroup.length },
+        token: fingerprint({ archiveGroup }, null) };
+    }
+    const environment = environmentId ? await bb.sdk.environments.get({ environmentId }) : null;
+    const binding = environment?.isWorktree ? undefined
       : readBinding((await bb.sdk.threads.getPluginMetadata({ threadId })).worktree);
-    const path = binding?.path ?? environment.path;
-    const defaultBranch = binding?.defaultBranch ?? environment.defaultBranch;
-    if (!path || !hostId || !defaultBranch || (!environment.isWorktree && !binding) ||
-        (binding && history.isRemoved(binding)) ||
-        (binding && binding.hostId !== hostId) || environment.status !== 'ready') {
+    const linked = binding !== undefined;
+    const nativeLifecycle = environment?.managed && !environment.isWorktree && environment.status !== 'destroyed'
+      ? { relatedThreadCount: 0 }
+      : null;
+    const common = { ...threadState, linked, binding, nativeLifecycle };
+    if (!binding && (!environment?.isWorktree || (environment.status === 'destroyed' && !environment.path))) {
+      return { ...common, hostId: null, path: null, target: null, inspection: null, checkoutKey: null,
+        token: fingerprint(nativeLifecycle, null) };
+    }
+    const hostId = environment?.hostId;
+    const path = binding?.path ?? environment?.path;
+    const defaultBranch = binding?.defaultBranch ?? environment?.defaultBranch;
+    if (!environment || !path || !hostId || (binding && binding.hostId !== hostId)) {
       throw new Error('У треда нет доступного Git worktree для очистки.');
     }
     if (!binding && environment.managed && environment.environmentProviderId !== 'git-worktree') {
       throw new Error('Тип этого управляемого окружения не поддерживает очистку.');
     }
-    const linked = binding !== undefined;
+    if (await host.call('worktreePathMissing', { path }, { hostId })) {
+      return { ...common, hostId, path, target: null, inspection: null, checkoutKey: null,
+        token: fingerprint({ hostId, path, binding, nativeLifecycle, missing: true }, null) };
+    }
+    if (!defaultBranch || (binding && history.isRemoved(binding)) || environment.status !== 'ready') {
+      throw new Error('У треда нет доступного Git worktree для очистки.');
+    }
     await verifyWorktreeUnused(hostId, path, threadId, linked);
-    await verifyNoRelatedThreads(threadId, action);
     const target = {
       path, defaultBranch, expected: binding && {
         gitDir: binding.gitDir, worktreeId: binding.worktreeId, branch: binding.branch,
@@ -240,14 +279,8 @@ export function registerCleanup(bb: BbPluginApi) {
     const inspection = await host.call('inspect', target, { hostId });
     const checkoutKey = bindingKey({ hostId, gitDir: inspection.gitDir, worktreeId: inspection.worktreeId });
     await verifyWorktreeOwnersIdle(history.owners(checkoutKey).filter(id => id !== threadId));
-    const token = createHash('sha256').update(JSON.stringify([
-      threadId, action, thread.archivedAt, environment.id, hostId, target, inspection.fingerprint,
-    ])).digest('hex');
-    return {
-      environment, target, inspection, token, path, hostId, linked, binding, checkoutKey,
-      title: thread.title ?? threadId,
-      archivedAt: thread.archivedAt,
-    };
+    return { ...common, hostId, path, target, inspection, checkoutKey,
+      token: fingerprint({ hostId, target, nativeLifecycle }, inspection.fingerprint) };
   }
 
   async function descendants(threadId: string) {
@@ -349,10 +382,10 @@ export function registerCleanup(bb: BbPluginApi) {
         const { entry, inspection, token } = await prepareWorktree(request);
         await verifyWorktreeOwnersIdle(history.owners(entry.key));
         await verifyWorktreeUnused(entry.hostId, entry.path, undefined, true);
-        return { path: entry.path, title: entry.repository ?? 'Worktree', inspection, token };
+        return { path: entry.path, title: entry.repository ?? 'Worktree', inspection, nativeLifecycle: null, token };
       }
-      const { path, title, inspection, token } = await prepare(request.threadId, request.action);
-      return { path, title, inspection, token };
+      const { path, title, inspection, nativeLifecycle, token } = await prepare(request.threadId, request.action);
+      return { path, title, inspection, nativeLifecycle, token };
     },
     async execute(input) {
       if (input.action === 'worktree') {
@@ -392,7 +425,7 @@ export function registerCleanup(bb: BbPluginApi) {
       const { threadId, action } = input;
       const thread = await bb.sdk.threads.get({ threadId });
       const environmentId = thread.environmentId;
-      if (!environmentId || busyThreads.has(threadId)) throw new Error('Операция очистки уже выполняется или окружение недоступно.');
+      if (busyThreads.has(threadId)) throw new Error('Операция очистки уже выполняется.');
       busyThreads.add(threadId);
       let worktreeKey: string | undefined;
       let lockedEnvironment = false;
@@ -402,27 +435,33 @@ export function registerCleanup(bb: BbPluginApi) {
       let otherOwners: string[] = [];
       try {
         const current = await prepare(threadId, action);
-        if (environmentId !== current.environment.id || input.token !== current.token) {
+        if (environmentId !== current.environmentId || input.token !== current.token) {
           throw new Error('Состояние изменилось. Откройте действие очистки заново.');
         }
-        const { inspection, hostId, target, linked } = current;
-        const owners = history.owners(current.checkoutKey).filter(id => id !== threadId);
-        const key = JSON.stringify([hostId, inspection.path]);
-        if (busyWorktrees.has(key) || (!linked && busyEnvironments.has(environmentId)) || owners.some(id => busyThreads.has(id))) {
+        const { inspection, hostId, target, path, linked } = current;
+        const owners = current.checkoutKey ? history.owners(current.checkoutKey).filter(id => id !== threadId) : [];
+        const key = path ? JSON.stringify([hostId, inspection?.path ?? path]) : undefined;
+        if ((key && busyWorktrees.has(key)) || (!linked && environmentId && busyEnvironments.has(environmentId)) ||
+            owners.some(id => busyThreads.has(id))) {
           throw new Error('В окружении уже выполняется очистка worktree.');
         }
         otherOwners = owners;
         for (const id of otherOwners) busyThreads.add(id);
-        busyWorktrees.add(key);
-        worktreeKey = key;
-        if (!linked) {
+        if (key) {
+          busyWorktrees.add(key);
+          worktreeKey = key;
+        }
+        if (!linked && environmentId && path) {
           busyEnvironments.add(environmentId);
           lockedEnvironment = true;
         }
-        if ((inspection.fileCount && !input.discardFiles) ||
-            (inspection.unmergedCount && !input.discardCommits) ||
+        if ((inspection?.fileCount && !input.discardFiles) ||
+            (inspection?.unmergedCount && !input.discardCommits) ||
             (action === 'delete' && !input.confirmDelete)) {
           throw new Error('Требуется подтверждение удаления.');
+        }
+        if (action === 'archive' && current.nativeLifecycle && !input.confirmArchive) {
+          throw new Error('Требуется подтверждение архивации.');
         }
         const verifyThreadState = async () => {
           const latest = await bb.sdk.threads.get({ threadId });
@@ -437,32 +476,56 @@ export function registerCleanup(bb: BbPluginApi) {
             }
           }
         };
-        try {
-          await verifyWorktreeUnused(hostId, target.path, threadId, linked);
-          if (current.binding) history.linked(threadId, current.title, await ancestors(threadId), current.binding);
-          else await rememberNative(thread, await ancestors(threadId));
-          await verifyThreadState();
-          await verifyWorktreeOwnersIdle([threadId, ...otherOwners]);
-          await host.call('removeCheckout', { target, inspection, force: input.discardFiles }, { hostId, timeoutMs: 120_000 });
-          removedBinding = current.binding;
-          removedCheckoutKey = current.checkoutKey;
-        } catch (error) {
-          return { state: 'failed' as const, message: `Тред сохранён. Удаление worktree не подтверждено. ${errorText(error)}` };
+        if (inspection && target) {
+          try {
+            await verifyWorktreeUnused(hostId, target.path, threadId, linked);
+            const related = await relatedThreads(threadId);
+            if (action === 'delete') verifyNoRelatedDeletion(related);
+            else if (related.some(dependent => dependent.archivedAt === null)) {
+              throw new Error('Появились связанные треды. Откройте действие архивации заново.');
+            }
+            if (current.binding) history.linked(threadId, current.title, await ancestors(threadId), current.binding);
+            else await rememberNative(thread, await ancestors(threadId));
+            await verifyThreadState();
+            await verifyWorktreeOwnersIdle([threadId, ...otherOwners]);
+            await host.call('removeCheckout', { target, inspection, force: input.discardFiles }, { hostId, timeoutMs: 120_000 });
+            removedBinding = current.binding;
+            removedCheckoutKey = current.checkoutKey ?? undefined;
+          } catch (error) {
+            return { state: 'failed' as const, message: `Тред сохранён. Удаление worktree не подтверждено. ${errorText(error)}` };
+          }
         }
         try {
-          await verifyNoRelatedThreads(threadId, action);
           await verifyThreadState();
+          if (!inspection && (await prepare(threadId, action)).token !== current.token) {
+            throw new Error('Состояние изменилось. Откройте действие очистки заново.');
+          }
+          if (inspection) {
+            const related = await relatedThreads(threadId);
+            if (action === 'delete') verifyNoRelatedDeletion(related);
+            else if (related.some(dependent => dependent.archivedAt === null)) {
+              throw new Error('Появились связанные треды. Откройте действие архивации заново.');
+            }
+          }
           if (action === 'delete') {
             await bb.sdk.threads.delete({ threadId, childThreadsConfirmed: false });
             deletedThread = true;
+          } else if (current.archiveGroup.length) {
+            const result = await bb.sdk.threads.archiveAll({ threadId });
+            const expected = current.archivedAt === null ? [threadId, ...current.archiveGroup] : current.archiveGroup;
+            if (!expected.every(id => result.archivedThreadIds.includes(id))) {
+              throw new Error('BB не подтвердил архивацию всей группы.');
+            }
+            return { state: 'done' as const, message: 'Тред и связанные треды архивированы.' };
           } else if (current.archivedAt === null) {
             const result = await bb.sdk.threads.archive({ threadId });
             if (!result.archivedThreadIds.includes(threadId)) throw new Error('BB не подтвердил архивацию треда.');
           }
         } catch (error) {
-          const state = inspection.branch ? 'Worktree удалён, ветка сохранена.' : 'Worktree удалён.';
-          return { state: 'failed' as const, message: `${state} Не удалось подтвердить закрытие треда. Проверьте его состояние в BB. ${errorText(error)}` };
+          const state = !inspection ? '' : inspection.branch ? 'Worktree удалён, ветка сохранена. ' : 'Worktree удалён. ';
+          return { state: 'failed' as const, message: `${state}Не удалось подтвердить закрытие треда. Проверьте его состояние в BB. ${errorText(error)}` };
         }
+        if (!inspection) return { state: 'done' as const, message: action === 'archive' ? 'Тред архивирован.' : 'Тред удалён.' };
         if (inspection.branch === null) return { state: 'done' as const, message: 'Worktree удалён.' };
         try {
           await host.call('removeBranch', { inspection, force: input.discardCommits }, { hostId });
@@ -482,7 +545,7 @@ export function registerCleanup(bb: BbPluginApi) {
             bb.log.warn(`Не удалось убрать привязку удалённого worktree у треда ${threadId}: ${errorText(error)}`);
           }
         }
-        if (lockedEnvironment) busyEnvironments.delete(environmentId);
+        if (lockedEnvironment && environmentId) busyEnvironments.delete(environmentId);
         if (worktreeKey) busyWorktrees.delete(worktreeKey);
         busyThreads.delete(threadId);
         for (const id of otherOwners) busyThreads.delete(id);

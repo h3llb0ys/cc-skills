@@ -68,6 +68,11 @@ export const hostCleanup = defineRpcContract({
     output: z.array(z.string()),
     experimental_retryable: true,
   },
+  worktreePathMissing: {
+    input: z.object({ path: z.string().min(1) }),
+    output: z.boolean(),
+    experimental_retryable: true,
+  },
   worktreeStates: {
     input: z.object({ paths: z.array(z.object({
       key: z.string(), path: z.string(), expected: worktreeIdentitySchema.optional(),
@@ -90,13 +95,15 @@ const threadRequest = z.object({ threadId: z.string(), action: actionSchema });
 const worktreeRequest = z.object({ threadId: z.string(), action: z.literal('worktree'), worktreeKey: z.string().min(1) });
 const request = z.union([threadRequest, worktreeRequest]);
 const confirmation = z.object({
-  token: z.string(), discardFiles: z.boolean(), discardCommits: z.boolean(), confirmDelete: z.boolean(),
+  token: z.string(), discardFiles: z.boolean(), discardCommits: z.boolean(),
+  confirmDelete: z.boolean(), confirmArchive: z.boolean().optional(),
 });
 export type CleanupRequestInput = z.infer<typeof request>;
 const preview = z.object({
-  path: z.string(),
+  path: z.string().nullable(),
   title: z.string(),
-  inspection: inspectionSchema,
+  inspection: inspectionSchema.nullable(),
+  nativeLifecycle: z.object({ relatedThreadCount: z.number().int().nonnegative() }).nullable(),
   token: z.string(),
 });
 const outcome = z.object({

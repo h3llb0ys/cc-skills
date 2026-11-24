@@ -4,6 +4,14 @@ import { colorsRpc, colorsSchema, colorsTag, defaultColors } from './sidebar/col
 
 export default function plugin(bb: BbPluginApi) {
   registerCleanup(bb);
+  bb.agents.contributeInstructions(() => [
+    'When the user asks you to create a Git worktree, use the repository’s worktree creation workflow and verify the new checkout.',
+    'For work continuing in this thread, including a request like “создай новый worktree от актуального main”, switch the thread to the verified absolute path using update_environment_directory.',
+    'Call that tool before continuing the task in the new checkout. After it succeeds, end the turn so BB can resume in the new directory. If the tool is unavailable or the switch fails, tell the user which directory the thread still uses.',
+    'Keep the current directory when the worktree is for parallel work or the user asks to keep working here. To record a verified worktree for this thread when the repository helper does not already do so, use bb workspace-tools link <absolute-repo> <absolute-worktree> <base> --branch <branch>.',
+    'The Workspace Tools link command records a worktree for display and cleanup. A successful link alone does not change the thread’s working directory.',
+  ].join(' '));
+
   const readColors = async () => colorsSchema.safeParse(await bb.storage.kv.get(colorsTag)).data ?? defaultColors;
   let lastSave = Promise.resolve();
   bb.rpc.register(colorsRpc, {
