@@ -1,33 +1,59 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
+import { parseFileLink, type FileLink } from "../file-link";
+
 const listId = "thread-prompt-banner-git-body";
 const rowSelector = `#${listId} button[aria-label^="Open "]`;
 const previewSelector = "[data-diff-preview]";
 const closeDelay = 240;
 
-export interface Anchor {
-  row: HTMLButtonElement;
-  list: HTMLElement;
-  path: string;
-}
+export type Anchor =
+  | { kind: "git"; row: HTMLButtonElement; list: HTMLElement; path: string }
+  | {
+      kind: "link";
+      row: HTMLAnchorElement;
+      list: HTMLElement;
+      link: FileLink;
+      href: string;
+      threadId: string;
+    };
 
 function element(target: EventTarget | null) {
   return target instanceof Element ? target : null;
 }
 
 export function findAnchor(target: EventTarget | null): Anchor | null {
-  const row = element(target)?.closest<HTMLButtonElement>(rowSelector);
+  const source = element(target);
+  const row = source?.closest<HTMLButtonElement>(rowSelector);
   const list = row?.closest<HTMLElement>(`#${listId}`);
   const path = row?.getAttribute("aria-label")?.slice("Open ".length);
-  return row && list && path ? { row, list, path } : null;
+  if (row && list && path) return { kind: "git", row, list, path };
+
+  const linkRow = source?.closest<HTMLAnchorElement>('a[href^="file:///"]');
+  const timelineRow = linkRow?.closest<HTMLElement>("[data-timeline-row-id]");
+  const rowId = timelineRow?.getAttribute("data-timeline-row-id");
+  const threadId = rowId && !rowId.includes(":child:")
+    ? /^(thr_[a-z0-9_]+):/u.exec(rowId)?.[1]
+    : undefined;
+  const href = linkRow?.getAttribute("href");
+  const link = href ? parseFileLink(href) : null;
+  return linkRow && timelineRow && threadId && href && link
+    ? { kind: "link", row: linkRow, list: timelineRow, link, href, threadId }
+    : null;
+}
+
+function sameAnchor(first: Anchor | null, second: Anchor) {
+  if (!first || first.row !== second.row) return false;
+  if (first.kind === "git") return second.kind === "git" && first.path === second.path;
+  return second.kind === "link" && first.href === second.href && first.threadId === second.threadId;
 }
 
 export function isCurrentAnchor(anchor: Anchor) {
   return anchor.row.isConnected &&
     anchor.list.contains(anchor.row) &&
-    findAnchor(anchor.row)?.path === anchor.path &&
-    !anchor.list.closest("[hidden], [inert], [aria-hidden=true]");
+    sameAnchor(findAnchor(anchor.row), anchor) &&
+    !anchor.row.closest("[hidden], [inert], [aria-hidden=true]");
 }
 
 function isPreview(target: EventTarget | null) {
@@ -63,14 +89,40 @@ export function previewPosition(
   } : null;
 }
 
-export function useHoveredFile(enabled: boolean, delay: number, threadId: string | null) {
+export function linkPreviewPosition(
+  row: DOMRectReadOnly,
+  viewport: { width: number; height: number },
+): CSSProperties | null {
+  const margin = 8;
+  const gap = 4;
+  if (row.width <= 0 || row.height <= 0 || row.bottom <= 0 || row.top >= viewport.height ||
+      row.right <= 0 || row.left >= viewport.width) return null;
+  const width = Math.min(560, viewport.width - 2 * margin);
+  if (width <= 0) return null;
+  const left = Math.max(margin, Math.min(row.left, viewport.width - margin - width));
+  const aboveSpace = row.top - gap - margin;
+  const belowSpace = viewport.height - row.bottom - gap - margin;
+  const below = belowSpace >= 170 || belowSpace >= aboveSpace;
+  const maxHeight = Math.min(320, below ? belowSpace : aboveSpace);
+  return maxHeight >= 65 ? {
+    left, width, maxHeight,
+    ...(below ? { top: row.bottom + gap } : { bottom: viewport.height - row.top + gap }),
+  } : null;
+}
+
+export function useHoveredFile(gitEnabled: boolean, linksEnabled: boolean, delay: number, threadId: string | null) {
   const [hover, setHover] = useState<{ anchor: Anchor; threadId: string } | null>(null);
   const closeRef = useRef<(() => void) | null>(null);
   const dismiss = useCallback(() => closeRef.current?.(), []);
 
   useEffect(() => {
     setHover(null);
-    if (!enabled || !threadId) return;
+    if ((!gitEnabled && !linksEnabled) || !threadId) return;
+
+    const targetAnchor = (target: EventTarget | null) => {
+      const anchor = findAnchor(target);
+      return anchor && (anchor.kind === "git" ? gitEnabled : linksEnabled) ? anchor : null;
+    };
 
     let opening: number | undefined;
     let closing: number | undefined;
@@ -86,11 +138,11 @@ export function useHoveredFile(enabled: boolean, delay: number, threadId: string
     closeRef.current = close;
     const enter = (event: PointerEvent | FocusEvent) => {
       if ("pointerType" in event && event.pointerType !== "mouse" && event.pointerType !== "pen") return;
-      const anchor = findAnchor(event.target);
+      const anchor = targetAnchor(event.target);
       if (isPreview(event.target) || anchor) cancelClose();
-      if (!anchor || findAnchor(event.relatedTarget)?.row === anchor.row) return;
+      if (!anchor || sameAnchor(targetAnchor(event.relatedTarget), anchor)) return;
       window.clearTimeout(opening);
-      if (active?.row === anchor.row && active.path === anchor.path) return;
+      if (sameAnchor(active, anchor)) return;
       close();
       opening = window.setTimeout(() => {
         if (!isCurrentAnchor(anchor)) return;
@@ -100,8 +152,8 @@ export function useHoveredFile(enabled: boolean, delay: number, threadId: string
     };
     const leave = (event: PointerEvent | FocusEvent) => {
       if ("pointerType" in event && event.pointerType !== "mouse" && event.pointerType !== "pen") return;
-      const row = findAnchor(event.target)?.row;
-      const nextRow = findAnchor(event.relatedTarget)?.row;
+      const row = targetAnchor(event.target)?.row;
+      const nextRow = targetAnchor(event.relatedTarget)?.row;
       if ((!row && !isPreview(event.target)) ||
           (row && row === nextRow) ||
           (isPreview(event.target) && isPreview(event.relatedTarget))) return;
@@ -131,12 +183,11 @@ export function useHoveredFile(enabled: boolean, delay: number, threadId: string
       window.clearTimeout(opening);
       cancelClose();
     };
-  }, [enabled, delay, threadId]);
+  }, [gitEnabled, linksEnabled, delay, threadId]);
 
-  return {
-    anchor: enabled && hover?.threadId === threadId ? hover.anchor : null,
-    dismiss,
-  };
+  const anchor = hover && hover.threadId === threadId ? hover.anchor : null;
+  const enabled = anchor?.kind === "git" ? gitEnabled : linksEnabled;
+  return { anchor: enabled ? anchor : null, dismiss };
 }
 
 export function usePreviewPosition(anchor: Anchor, overlay: boolean, dismiss: () => void) {
@@ -144,18 +195,20 @@ export function usePreviewPosition(anchor: Anchor, overlay: boolean, dismiss: ()
   useEffect(() => {
     const update = () => {
       const row = anchor.row.getBoundingClientRect();
-      const scrollArea = anchor.row.closest("ul")?.getBoundingClientRect();
+      const scrollArea = anchor.kind === "git" ? anchor.row.closest("ul")?.getBoundingClientRect() : null;
       if (!isCurrentAnchor(anchor) ||
           (scrollArea && (row.bottom <= scrollArea.top || row.top >= scrollArea.bottom))) {
         dismiss();
         return;
       }
-      const next = previewPosition(
-        row,
-        anchor.list.getBoundingClientRect(),
-        { width: window.innerWidth, height: window.innerHeight },
-        overlay,
-      );
+      const viewport = { width: window.innerWidth, height: window.innerHeight };
+      const next = anchor.kind === "git"
+        ? previewPosition(row, anchor.list.getBoundingClientRect(), viewport, overlay)
+        : linkPreviewPosition(row, viewport);
+      if (!next && anchor.kind === "link") {
+        dismiss();
+        return;
+      }
       setPosition(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
     };
     update();
@@ -170,7 +223,7 @@ export function usePreviewPosition(anchor: Anchor, overlay: boolean, dismiss: ()
       mutation.observe(node, {
         childList: true,
         attributes: true,
-        attributeFilter: ["aria-label", "aria-hidden", "hidden", "inert"],
+        attributeFilter: ["aria-label", "aria-hidden", "data-timeline-row-id", "hidden", "href", "inert"],
       });
     }
     return () => {

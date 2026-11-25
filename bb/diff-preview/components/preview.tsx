@@ -81,7 +81,7 @@ function WorkspaceDiff({ environmentId, path, lineNumbers }: {
 
 export function Preview({ threadId, anchor, overlay, lineNumbers, dismiss }: {
   threadId: string;
-  anchor: Anchor;
+  anchor: Extract<Anchor, { kind: "git" }>;
   overlay: boolean;
   lineNumbers: boolean;
   dismiss: () => void;

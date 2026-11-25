@@ -3,6 +3,7 @@ export const placementOptions = ["Over the list", "Above the list"] as const;
 
 export const defaults = {
   enabled: true,
+  fileLinks: true,
   delay: delayOptions[1],
   placement: placementOptions[0],
   lineNumbers: true,

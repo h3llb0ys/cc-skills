@@ -6,8 +6,13 @@ export default function diffPreview(bb: BbPluginApi) {
   bb.settings.define({
     enabled: {
       type: "boolean",
-      label: "Preview on hover",
+      label: "Preview changed files on hover",
       default: defaults.enabled,
+    },
+    fileLinks: {
+      type: "boolean",
+      label: "Preview file links in chat",
+      default: defaults.fileLinks,
     },
     delay: {
       type: "select",

@@ -35,3 +35,33 @@
   color: var(--muted-foreground);
   font-size: 12px;
 }
+
+.bb-file-preview-lines {
+  margin: 0;
+  min-width: max-content;
+  padding: 4px 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  tab-size: 4;
+}
+
+.bb-file-preview-line {
+  display: block;
+  min-height: 1.5em;
+  padding-inline: 12px;
+}
+
+.bb-file-preview-line[data-highlighted] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.bb-file-preview-number {
+  display: inline-block;
+  width: 5ch;
+  margin-inline-end: 1.5ch;
+  color: var(--muted-foreground);
+  text-align: end;
+  user-select: none;
+}

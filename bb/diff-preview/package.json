@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "Diff Preview",
-    "description": "Preview a file's Git diff by hovering over it in BB's changed-files list.",
+    "description": "Preview Git diffs in Changed files and text excerpts from file links in BB chat.",
     "branding": {
       "icon": "FileDiff"
     },
