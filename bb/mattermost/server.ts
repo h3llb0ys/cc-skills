@@ -4,6 +4,8 @@ import { promisify } from "node:util";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { contract, palette, type WatchSettings } from "./contract";
 
+import { watchActions } from "./settings";
+
 const execute = promisify(execFile);
 function watchOptions(input: WatchSettings) {
   const args = ["--interval", String(input.interval), "--rule=" + input.rule];
@@ -16,6 +18,8 @@ function watchOptions(input: WatchSettings) {
 
 export default function mattermost(bb: BbPluginApi) {
   const config = bb.settings.define({
+    subscriptionClick: { type: "select", label: "При нажатии на подписку",
+      options: Object.values(watchActions), default: watchActions.mattermost },
     showThreadSubscriptions: { type: "boolean", label: "Показывать подписки в правой панели", default: true },
     stateDirectory: { type: "string", label: "Каталог подписок (MM_STATE_DIR)", default: "" },
   });
@@ -39,7 +43,8 @@ export default function mattermost(bb: BbPluginApi) {
       const { stdout } = await task;
       return JSON.parse(stdout);
     } catch (cause) {
-      const err = cause as { stderr?: string; code?: string };
+      const err = cause as { stderr?: string; killed?: boolean };
+      if (err.killed) throw new Error("Операция Mattermost не завершилась за 70 с. Проверьте состояние подписки и повторите попытку.");
       throw new Error(err.stderr?.trim().slice(0, 300) || "Не удалось прочитать хранилище подписок Mattermost");
     }
   }
@@ -106,7 +111,8 @@ export default function mattermost(bb: BbPluginApi) {
       return finishSetup(created.id, target);
     },
     edit: async input => {
-      await cli(["edit", input.id, ...watchOptions(input)]);
+      const target = input.chat ? await targetThread(input.chat) : [];
+      await cli(["edit", input.id, ...target, ...watchOptions(input)]);
       bb.realtime.publish("changed", {});
       return null;
     },

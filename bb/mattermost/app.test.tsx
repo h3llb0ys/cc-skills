@@ -8,9 +8,11 @@ it("navigates from the registry, edits conditions and leaves the palette in plug
   const app = await loadPluginApp(() => import("./app"));
   const w = { id: "a".repeat(20), chat: "thread1", owner: "project1", url: "https://mm.example/team/pl/abc",
     interval: 5, rule: "QA", push: null, until: null, draft: false, schedule: "schedule1", timezone: "UTC",
-    paused: false, status: "answer", title: "Релиз", kind: "thread" };
+    paused: false, status: "answer", title: "Релиз", kind: "thread", source_problem: "Сессия истекла", source_link_blocked: false };
   const edits: unknown[] = [];
   const slot = renderSlot(app.navPanels[0]!, { subPath: "list" }, {
+    sidebarThreads: { threads: [{ id: "thread2", displayTitle: "Дежурство", projectId: "p2",
+      environment: { id: "env2" } } as ReturnType<typeof import("@get-bb/plugin-sdk/app").experimental_useSidebarThreads>["threads"][number]] },
     rpc: { list: () => ({ watches: [w], colors: { answer: null, attention: null, resolved: null } }),
       edit: input => { edits.push(input); return null; } },
     openUrl: () => true,
@@ -23,14 +25,19 @@ it("navigates from the registry, edits conditions and leaves the palette in plug
     expect(desktop.getAttribute("href")).toBe("mattermost://mm.example/team/pl/abc");
     fireEvent.click(desktop);
     expect(JSON.stringify(slot.inspection.navigateCalls)).toContain("mattermost://mm.example/team/pl/abc");
-    expect(JSON.stringify(slot.inspection.navigateCalls)).toContain("thread1");
+    expect(slot.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: w.url });
     fireEvent.click(slot.getByLabelText("Открыть в Mattermost: Релиз"));
     fireEvent.click(slot.getByText("В браузере ↗"));
     expect(slot.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: w.url });
     fireEvent.click(slot.getByLabelText("Настройки: Релиз"));
+    const target = slot.getByLabelText("Куда присылать") as HTMLSelectElement;
+    expect(target.value).toBe("thread1");
+    expect(Array.from(target.options, option => option.text)).toContain("Дежурство");
+    fireEvent.change(target, { target: { value: "thread2" } });
+    fireEvent.click(slot.getByRole("checkbox", { name: /общий сабтред сводок/ }));
     fireEvent.change(slot.getByLabelText("Интервал, минуты"), { target: { value: "12" } });
     fireEvent.click(slot.getByText("Сохранить"));
-    await waitFor(() => expect(edits).toMatchObject([{ interval: 12, rule: "QA" }]));
+    await waitFor(() => expect(edits).toMatchObject([{ id: w.id, interval: 12, rule: "QA", chat: "thread2", destination: "shared" }]));
     expect(slot.queryByRole("button", { name: "Цвета" })).toBeNull();
     expect(slot.queryByLabelText("#8b5cf6")).toBeNull();
   } finally { slot.lifecycle.unmount(); }
@@ -169,7 +176,7 @@ it("opens the newest unread summary, then history, draft and current-thread sett
     }
     fireEvent.click(settings);
     expect(rendered.queryByText("Чужая ветка")).toBeNull();
-    expect((rendered.getByLabelText("Куда присылать") as HTMLSelectElement).value).toBe("chat");
+    expect((rendered.getByLabelText("Куда присылать") as HTMLSelectElement).value).toBe(w.chat);
     expect((rendered.getByLabelText("Полное правило") as HTMLTextAreaElement).value).toBe(w.rule);
   } finally { rendered.lifecycle.unmount(); }
 });
@@ -244,6 +251,21 @@ it("shows this thread's subscriptions in the card and Info with a check time and
       expect(view.getByText("Ждут ответа").querySelector("i")?.style.backgroundColor).toBe("rgb(18, 52, 86)");
       expect(view.container.querySelector("time")?.dateTime).toBe(new Date(own.last_checked_at * 1000).toISOString());
     } finally { view.lifecycle.unmount(); }
+    for (const [action, archived] of [["Открыть тред BB", false], ["Открыть тред BB", true], ["Редактировать подписку", false]] as const) {
+      const shared = {...own, destination: "shared", summary_thread: "child"};
+      type Thread = Awaited<ReturnType<ReturnType<typeof import("@get-bb/plugin-sdk/app").useSdk>["threads"]["get"]>>;
+      const configured = renderSlot(section, props, { settings: { subscriptionClick: action },
+        sdk: { threads: { get: async () => ({ id: "child", parentThreadId: "target", archivedAt: archived ? 1 : null } as Thread) } },
+        rpc: { list: () => ({...rpc.list(), watches: [shared]}) } });
+      try {
+        const button = await configured.findByRole("button", { name: "Promo" });
+        expect(button.title).toBe(action);
+        fireEvent.click(button);
+        if (action === "Открыть тред BB") await waitFor(() => expect(configured.inspection.navigateCalls)
+          .toContainEqual(expect.objectContaining({method:"toThread", threadId:archived ? "target" : "child"})));
+        else await configured.findByRole("form", { name: "Настройки подписки" });
+      } finally { configured.lifecycle.unmount(); }
+    }
     const hidden = renderSlot(section, props, { settings: { showThreadSubscriptions: false }, rpc });
     try {
       expect(hidden.container.textContent).toBe("");
@@ -298,7 +320,7 @@ it("creates a watch from the empty subscriptions panel and keeps inputs when sch
     fireEvent.change(view.getByLabelText("Ссылка на канал или ветку Mattermost"), { target: { value: url } });
     expect(view.getByRole("option", { name: /Дежурство.*thread1/ })).toBeTruthy();
     expect(view.getByRole("option", { name: /Дежурство.*thread2/ })).toBeTruthy();
-    fireEvent.change(view.getByLabelText("Тред BB"), { target: { value: "thread1" } });
+    fireEvent.change(view.getByLabelText("Куда присылать"), { target: { value: "thread1" } });
     fireEvent.click(view.getByRole("button", { name: "Создать подписку" }));
     await view.findByRole("alert");
     expect((view.getByLabelText("Ссылка на канал или ветку Mattermost") as HTMLInputElement).value).toBe(url);

@@ -5,6 +5,7 @@ import { Marker } from "./status";
 import { useSubscriptions, useWatchRefresh } from "../hooks/use-subscriptions";
 import { checkTime } from "../time";
 import { ReplyDraft } from "./reply-draft";
+import { WatchAction } from "./watch-action";
 import { Subscriptions } from "./subscriptions";
 
 type OpenSummary = Summary & { body: string; draft: string };
@@ -20,6 +21,7 @@ function Inbox({ threadId }: { threadId: string }) {
   const nav = useBbNavigate();
   const watches = useSubscriptions();
   const [page, setPage] = useState<"widget" | "history" | "subscriptions">("widget");
+  const [editId, setEditId] = useState<string>();
   const [cursors, setCursors] = useState<number[]>([]);
   const before = cursors[cursors.length - 1];
   const feed = experimental_useRpcQuery({ contract, method: "inbox", input: before ? { chat: threadId, before } : { chat: threadId } });
@@ -34,7 +36,7 @@ function Inbox({ threadId }: { threadId: string }) {
   const colors = watches.data?.colors ?? defaults;
   const last = Math.max(0, ...own.map(w => w.last_checked_at ?? 0));
   function navigate(next: typeof page) {
-    setDetail(null); setPage(next); setCursors([]); setError("");
+    setEditId(undefined); setDetail(null); setPage(next); setCursors([]); setError("");
   }
   async function open(id: number) {
     setLoading(true); setError("");
@@ -67,7 +69,7 @@ function Inbox({ threadId }: { threadId: string }) {
           update={text => setEdits({ ...edits, [detail.id]: text })} />
       </details>}
       <button onClick={() => setDetail(null)}>← Назад</button>
-    </article> : page === "subscriptions" ? <Subscriptions threadId={threadId} /> : page === "history" ? <>
+    </article> : page === "subscriptions" ? <Subscriptions threadId={threadId} editId={editId} /> : page === "history" ? <>
       {data?.child && <button onClick={() => nav.toThread(data.child!)}>Открыть сабтред сводок ↗</button>}
       {data?.rows.map(s => <button className="mm-history-row" key={s.id} disabled={loading} onClick={() => void open(s.id)}>
         <strong>{s.headline}</strong>{!s.opened && <small> · Новое</small>}{meta(s)}</button>)}
@@ -78,8 +80,9 @@ function Inbox({ threadId }: { threadId: string }) {
       <button className="mm-primary" disabled={loading} onClick={() => void open(latest.id)}>Открыть сводку →</button>
       <a href={latest.url} target="_blank" rel="noopener noreferrer">В Mattermost ↗</a>
     </div></article> : data && <small>{data.rows.length ? "Все сводки просмотрены" : "Ждём первую сводку"}
-      {!data.rows.length && own.length === 1 && !own[0].source_problem &&
-        <> · <a href={own[0].url} target="_blank" rel="noopener noreferrer">{own[0].title || "Открыть в Mattermost"} ↗</a></>}</small>}
+      {!data.rows.length && own.length === 1 &&
+        <> · <WatchAction watch={own[0]} onEdit={() => { navigate("subscriptions"); setEditId(own[0].id); }}>
+          {own[0].title || own[0].channel || own[0].url}</WatchAction></>}</small>}
   </section>;
 }
 

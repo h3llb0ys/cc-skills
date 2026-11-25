@@ -4,11 +4,15 @@ import json
 import os
 import re
 import shutil
+import socket
+import subprocess
+import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from http.cookies import SimpleCookie
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -76,7 +80,8 @@ def site_url(value):
 
 
 class Client:
-    def __init__(self, credentials=None):
+    def __init__(self, credentials=None, *, timeout=30):
+        self.timeout = timeout
         if credentials is None:
             override = os.environ.get("MM_URL")
             cookie = os.environ.get("MM_COOKIE") if override else None
@@ -99,8 +104,43 @@ class Client:
         if "MMCSRF" in parsed:
             self.headers["X-CSRF-Token"] = parsed["MMCSRF"].value
         self.opener = build_opener(NoRedirect)
+        self.use_system_curl = False
 
-    def open(self, path, params=None, body=None):
+    def _curl(self, request, path, deadline, output):
+        # Keep credentials on stdin. No curlrc, URL globbing or redirects.
+        args = ["/usr/bin/curl", "-q", "--globoff", "--proto", "=https", "--silent",
+                "--connect-timeout", str(min(4, self.timeout)), "--header", "@-",
+                "--write-out", "\n%{http_code}"]
+        if request.data is not None:
+            args.extend(["--data-binary", request.data.decode()])
+        if output is not None:
+            output.seek(0)
+            output.truncate()
+            args.extend(["--output", output.name, "--speed-limit", "1", "--speed-time", str(self.timeout)])
+        headers = "".join(f"{key}: {value}\n" for key, value in request.header_items()).encode()
+        for _ in range(2):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.001:
+                break
+            limits = ["--max-time", f"{remaining:.3f}"] if output is None else []
+            reply = subprocess.run([*args, *limits, "--url", request.full_url], input=headers, capture_output=True)
+            if reply.returncode == 28:
+                continue
+            if reply.returncode:
+                raise OSError(f"Не удалось подключиться к Mattermost (curl {reply.returncode})")
+            data, _, code = reply.stdout.rpartition(b"\n")
+            self._check_status(int(code), path)
+            return json.loads(data) if output is None else None
+        raise TimeoutError(f"Mattermost не ответил за {self.timeout} с. Проверьте соединение и попробуйте ещё раз.")
+
+    @staticmethod
+    def _check_status(status, path):
+        if status in (301, 302, 303, 307, 308, 401):
+            raise AuthError("Mattermost session expired; refresh the cookie")
+        if not 200 <= status < 300:
+            raise ApiError(status, path)
+
+    def _read(self, path, params=None, body=None, output=None):
         url = self.base + "/api/v4/" + path
         if params:
             url += "?" + urlencode(params)
@@ -108,17 +148,32 @@ class Client:
         if body is not None:
             request.data = json.dumps(body).encode()
             request.add_header("Content-Type", "application/json")
-        try:
-            return self.opener.open(request, timeout=30)
-        except HTTPError as error:
-            error.close()
-            if error.code == 401 or error.code in (301, 302, 303, 307, 308):
-                raise AuthError("Mattermost session expired; refresh the cookie") from None
-            raise ApiError(error.code, path) from None
+        if any("\r" in value or "\n" in value for _, value in request.header_items()):
+            raise AuthError("Invalid Mattermost request header")
+        deadline = time.monotonic() + self.timeout
+        if not self.use_system_curl:
+            # Leave time for the system client if macOS routes Python differently.
+            timeout = min(5, self.timeout / 2) if sys.platform == "darwin" else self.timeout
+            try:
+                with self.opener.open(request, timeout=timeout) as response:
+                    if output is None:
+                        return json.load(response)
+                    shutil.copyfileobj(response, output)
+                    return None
+            except HTTPError as error:
+                error.close()
+                self._check_status(error.code, path)
+                raise
+            except (TimeoutError, socket.timeout, URLError) as error:
+                if isinstance(error, URLError) and not isinstance(error.reason, (TimeoutError, socket.timeout)):
+                    raise
+                if sys.platform != "darwin":
+                    raise TimeoutError(f"Mattermost не ответил за {self.timeout} с. Проверьте соединение и попробуйте ещё раз.") from None
+                self.use_system_curl = True
+        return self._curl(request, path, deadline, output)
 
     def api(self, path, **kwargs):
-        with self.open(path, **kwargs) as response:
-            return json.load(response)
+        return self._read(path, **kwargs)
 
     def link(self, url, route):
         if not url.startswith(self.base + "/"):
@@ -271,8 +326,8 @@ class Client:
         if not output:
             return self.api(path + "/info")
         target = Path(output)
-        with self.open(path) as response, tempfile.NamedTemporaryFile(dir=target.parent) as scratch:
-            shutil.copyfileobj(response, scratch)
+        with tempfile.NamedTemporaryFile(dir=target.parent) as scratch:
+            self._read(path, output=scratch)
             scratch.flush()
             os.link(scratch.name, target)  # Refuse to overwrite an existing destination.
         return {"saved": str(target)}

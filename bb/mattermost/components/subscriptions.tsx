@@ -2,6 +2,7 @@ import { useState } from "react";
 import { experimental_useSidebarThreads, experimental_Icon as Icon, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { contract, defaults, type Watch } from "../contract";
 import { checkTime } from "../time";
+import { WatchAction } from "./watch-action";
 import { WatchEditor } from "./watch-editor";
 import { CheckWatch } from "./check-watch";
 import { Marker } from "./status";
@@ -53,15 +54,15 @@ function FinishSetup({ watch, refresh }: { watch: Watch; refresh: () => Promise<
   </div>;
 }
 
-export function Subscriptions({ threadId }: { threadId: string }) {
+export function Subscriptions({ threadId, editId }: { threadId: string; editId?: string }) {
   const query = useSubscriptions();
-  return <SubscriptionList query={query} threadId={threadId} />;
+  return <SubscriptionList query={query} threadId={threadId} editId={editId} />;
 }
 
-export function SubscriptionList({ query, threadId, grouped = false }: { query: ReturnType<typeof useSubscriptions>; threadId?: string; grouped?: boolean }) {
+export function SubscriptionList({ query, threadId, editId, grouped = false }: { query: ReturnType<typeof useSubscriptions>; threadId?: string; editId?: string; grouped?: boolean }) {
   const nav = useBbNavigate();
   const { threads } = experimental_useSidebarThreads();
-  const [detail, setDetail] = useState<Detail>(null);
+  const [detail, setDetail] = useState<Detail>(editId ? { kind: "edit", id: editId } : null);
   const [error, setError] = useState("");
   const creating = detail?.kind === "create";
   const rows = (query.data?.watches ?? []).filter(w => !threadId || w.chat === threadId);
@@ -81,7 +82,7 @@ export function SubscriptionList({ query, threadId, grouped = false }: { query: 
     const title = w.title || w.url.split("/").pop();
     const selected = detail?.id === w.id ? detail.kind : null;
     return <div className="mm-item" key={w.id}><div className="mm-line">
-      <button className="mm-main" onClick={() => threadId ? setDetail({ kind: "edit", id: w.id }) : nav.toThread(w.chat)} title={threadId ? "Настроить подписку" : `Открыть BB · ${names.get(w.chat) ?? w.chat}`}>
+      <WatchAction watch={w} className="mm-main" onEdit={() => setDetail({ kind: "edit", id: w.id })}>
         <span className="mm-title"><strong>{title}</strong><small>{w.kind === "channel" ? "Канал" : "Ветка"}</small>
           <Marker status={w.status} colors={colors} /></span>
         <span className="mm-meta">{w.channel && `#${w.channel} · `}{w.interval} мин
@@ -91,9 +92,9 @@ export function SubscriptionList({ query, threadId, grouped = false }: { query: 
         {threadId && <span className="mm-meta">{w.destination === "shared" ? "Общий сабтред сводок" : "Этот чат"}</span>}
         {w.source_problem && <span role="alert">{w.source_problem}</span>}
         {w.push_problem && <span className="mm-meta">Push ожидает доставки</span>}
-      </button>
+      </WatchAction>
       <CheckWatch watch={w} />
-      <button className="mm-icon" disabled={!!w.source_problem} title="Открыть в Mattermost" aria-label={`Открыть в Mattermost: ${title}`}
+      <button className="mm-icon" disabled={w.source_link_blocked} title="Открыть в Mattermost" aria-label={`Открыть в Mattermost: ${title}`}
         onClick={() => { setError(""); setDetail(selected === "open" ? null : { kind: "open", id: w.id }); }}><Icon name="ExternalLink" className="mm-action-glyph" aria-hidden /></button>
       <button className="mm-icon" title="Настроить подписку" aria-label={`Настройки: ${title}`}
         onClick={() => setDetail(selected === "edit" ? null : { kind: "edit", id: w.id })}><Icon name="Settings" className="mm-action-glyph" aria-hidden /></button>

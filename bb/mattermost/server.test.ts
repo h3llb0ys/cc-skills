@@ -28,7 +28,7 @@ db.commit()`;
     saveConnection(input: { url: string; cookie: string }): Promise<unknown>;
     connection(): Promise<unknown>;
     testConnection(input: { url: string; cookie: string }): Promise<unknown>;
-    edit(input: {id:string; interval:number; rule:string; push:null; draft:boolean; until:null}): Promise<null>;
+    edit(input: {id:string; chat?:string; interval:number; rule:string; push:null; draft:boolean; until:null}): Promise<null>;
   };
   let handlers!: Handlers;
   try {
@@ -85,5 +85,7 @@ esac
     const row = JSON.parse(execFileSync("python3", ["-c", 'import sqlite3,sys;print(sqlite3.connect(sys.argv[1]).execute("select data from watches where id=?",(sys.argv[2],)).fetchone()[0])', dbFile, id]).toString());
     expect(row.environment).toBe("new-env");
     expect(row.setup_pending).toBeUndefined();
+    await handlers.edit({...input, chat:"other-chat"});
+    expect(await read()).toMatchObject([{ id, chat:"other-chat", rule:"Только апрув", schedule:"recovered" }]);
   } finally { vi.unstubAllEnvs(); rmSync(dir,{recursive:true,force:true}); }
 });

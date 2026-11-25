@@ -19,12 +19,12 @@ const settings = z.object({
 export type WatchSettings = z.infer<typeof settings>;
 export const watch = settings.extend({
   rule: z.string(), // Existing records with an empty rule can still be opened and edited.
-  id, url, chat: z.string(), owner: z.string(), title: z.string().optional(),
+  id, url, chat: z.string(), summary_thread: z.string().optional(), owner: z.string(), title: z.string().optional(),
   kind: z.enum(["thread", "channel"]).default("thread"), channel: z.string().nullable().optional(),
   status: z.union([signal, z.literal("normal")]).default("normal"),
   last_checked_at: z.number().int().nonnegative().optional(),
   schedule: z.string().nullable(), setup_pending: z.boolean().optional(), paused: z.boolean(), timezone: z.string(),
-  push_problem: z.string().optional(), source_problem: z.string().optional(),
+  push_problem: z.string().optional(), source_problem: z.string().optional(), source_link_blocked: z.boolean().optional(),
 });
 export type Watch = z.infer<typeof watch>;
 export const palette = z.object({ answer: color.nullable(), attention: color.nullable(), resolved: color.nullable() });
@@ -58,6 +58,6 @@ export const contract = defineRpcContract({
   unwatch: { input: z.object({ id }), output: z.null() },
   finishSetup: { input: z.object({ id, chat: thread }), output: z.null() },
   create: { input: settings.extend({ url, chat: thread, timezone: z.string().min(1) }), output: z.null() },
-  edit: { input: settings.extend({ id }), output: z.null() },
+  edit: { input: settings.extend({ id, chat: thread.optional() }), output: z.null() },
   color: { input: z.object({ status: signal, color: color.nullable() }), output: z.null() },
 });

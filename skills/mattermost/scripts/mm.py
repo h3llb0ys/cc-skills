@@ -99,9 +99,9 @@ def parser():
     for name in ("unwatch", "enable", "finish-setup", "check", "tick", "review", "resolve", "edit"):
         p = commands.add_parser(name)
         p.add_argument("id", help="local watch ID")
-        if name == "finish-setup":
+        if name in ("finish-setup", "edit"):
             for flag in ("--chat", "--owner", "--environment"):
-                p.add_argument(flag, required=True)
+                p.add_argument(flag, required=name == "finish-setup")
         if name == "unwatch":
             p.add_argument("--platform", choices=["bb", "orca"])
         if name == "edit":

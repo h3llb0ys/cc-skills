@@ -1,9 +1,13 @@
+import { useState } from "react";
+import { WatchAction } from "./watch-action";
+import { WatchEditor } from "./watch-editor";
 import { experimental_Icon as Icon, experimental_InfoSection as InfoSection, useSettings } from "@get-bb/plugin-sdk/app";
 import { Marker } from "./status";
 import { useSubscriptions } from "../hooks/use-subscriptions";
 import { checkTime } from "../time";
 
 function ThreadSubscriptions({ threadId, info }: { threadId: string; info?: boolean }) {
+  const [editId, setEditId] = useState<string | null>(null);
   const query = useSubscriptions();
   if (!query.data) return null;
   const { watches, colors } = query.data;
@@ -16,8 +20,8 @@ function ThreadSubscriptions({ threadId, info }: { threadId: string; info?: bool
       return <div key={w.id} className="mm-context-item">
         <div className="mm-context-title">
           <span aria-label={w.kind === "channel" ? "Канал" : "Ветка"}>{w.kind === "channel" ? "#" : "↳"}</span>
-          <span className="mm-context-name" title={title}>{title}</span>
-          {!w.source_problem && <a href={w.url} target="_blank" rel="noopener noreferrer" title="Открыть в Mattermost" aria-label={`Открыть в Mattermost: ${title}`}>
+          <WatchAction className="mm-context-name" watch={w} onEdit={() => setEditId(w.id)}>{title}</WatchAction>
+          {!w.source_link_blocked && <a href={w.url} target="_blank" rel="noopener noreferrer" title="Открыть в Mattermost" aria-label={`Открыть в Mattermost: ${title}`}>
             <Icon name="ExternalLink" className="mm-action-glyph" aria-hidden />
           </a>}
         </div>
@@ -27,6 +31,7 @@ function ThreadSubscriptions({ threadId, info }: { threadId: string; info?: bool
             <time dateTime={new Date(w.last_checked_at * 1000).toISOString()}>Проверено {checkTime.format(w.last_checked_at * 1000)}</time>}
         </div>
         {issue && <small>{issue}</small>}
+        {editId === w.id && !w.paused && <WatchEditor watch={w} close={() => setEditId(null)} />}
       </div>;
     })}
   </div>;

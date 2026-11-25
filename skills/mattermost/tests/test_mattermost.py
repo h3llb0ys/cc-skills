@@ -2,6 +2,7 @@ from contextlib import closing
 import io
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -43,6 +44,60 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(request.get_header("X-csrf-token"), "test")
             self.assertEqual(request.get_header("Cookie"), os.environ["MM_COOKIE"])
         self.assertIsNone(client.NoRedirect().redirect_request(None))
+
+    def test_network_timeout_explains_how_to_retry(self):
+        api = client.Client(timeout=10)
+        for failure in (client.URLError(socket.timeout("timed out")), socket.timeout(), TimeoutError()):
+            with self.subTest(failure=failure), patch.object(sys, "platform", "linux"), patch.object(api.opener, "open", side_effect=failure) as send:
+                with self.assertRaisesRegex(TimeoutError, "Mattermost не ответил за 10 с"):
+                    api.api("users/me")
+                self.assertEqual(send.call_args.kwargs["timeout"], 10)
+
+    def test_macos_timeout_uses_system_transport_and_preserves_auth_boundary(self):
+        replies = [subprocess.CompletedProcess([], 28, b""), subprocess.CompletedProcess([], 0, b'{"id":"ok"}\n200'),
+                   subprocess.CompletedProcess([], 0, b"\n302")]
+        with patch.object(sys, "platform", "darwin"), patch.object(self.api.opener, "open", side_effect=socket.timeout()) as native, \
+                patch.object(subprocess, "run", side_effect=replies) as curl:
+            self.assertEqual(self.api.api("posts/" + ROOT), {"id": "ok"})
+            with self.assertRaises(client.AuthError):
+                self.api.api("users/me")
+            native.assert_called_once()
+            args = curl.call_args.args[0]
+            self.assertEqual(args[:2], ["/usr/bin/curl", "-q"])
+            self.assertNotIn("--location", args)
+            self.assertNotIn(os.environ["MM_COOKIE"], " ".join(args))
+            self.assertIn(os.environ["MM_COOKIE"].encode(), curl.call_args.kwargs["input"])
+
+    def test_json_retries_share_the_native_request_deadline(self):
+        api = client.Client(timeout=10)
+        with patch.object(sys, "platform", "darwin"), patch.object(api.opener, "open", side_effect=socket.timeout()), \
+                patch.object(client.time, "monotonic", side_effect=[100, 104, 110]), \
+                patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 28, b"")) as curl:
+            with self.assertRaises(TimeoutError):
+                api.api("users/me")
+            curl.assert_called_once()
+            args = curl.call_args.args[0]
+            self.assertEqual(float(args[args.index("--max-time") + 1]), 6)
+
+    def test_fallback_download_replaces_partial_data_and_never_publishes_errors(self):
+        class Partial(io.BytesIO):
+            def read(self, size=-1):
+                if self.tell():
+                    raise socket.timeout()
+                return super().read(size)
+        codes = iter([200, 404])
+        def curl(args, **kwargs):
+            Path(args[args.index("--output") + 1]).write_bytes(b"file")
+            return subprocess.CompletedProcess(args, 0, f"\n{next(codes)}".encode())
+        with tempfile.TemporaryDirectory() as folder, patch.object(sys, "platform", "darwin"), \
+                patch.object(self.api.opener, "open", return_value=Partial(b"incomplete data")), \
+                patch.object(subprocess, "run", side_effect=curl):
+            target = Path(folder) / "attachment"
+            self.api.download(ROOT, target)
+            with self.assertRaises(client.ApiError):
+                self.api.download(OTHER, target)
+            self.assertEqual(target.read_bytes(), b"file")
+            self.assertEqual(list(Path(folder).iterdir()), [target])
 
     def test_thread_pages_including_reply_permalink_and_tied_times(self):
         root, a, b = post(ROOT, 1), post(REPLY, 2, ROOT), post(OTHER, 2, ROOT)
@@ -125,7 +180,7 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(self.api.around(URL + ROOT, 1, 1)[1], [before, anchor, after])
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "attachment"
-            with patch.object(self.api, "open", side_effect=lambda *a: io.BytesIO(b"test")):
+            with patch.object(self.api.opener, "open", side_effect=lambda *a, **kw: io.BytesIO(b"test")):
                 self.api.download(OTHER, path)
                 self.assertEqual(path.read_bytes(), b"test")
                 with self.assertRaises(FileExistsError):
@@ -164,6 +219,20 @@ class WatchTests(unittest.TestCase):
     def invoke(self, *args):
         return watches.handle(self.parser.parse_args(args))
 
+    def test_create_timeout_leaves_no_watch_and_allows_other_writes(self):
+        def offline(_):
+            with closing(watches.connect()) as concurrent:
+                concurrent.execute("PRAGMA busy_timeout=0")
+                concurrent.execute("BEGIN IMMEDIATE")
+            raise TimeoutError("Mattermost offline")
+        self.client.thread.side_effect = offline
+        options = self.options.copy()
+        options[options.index("target")] = "new-chat"
+        with self.assertRaises(TimeoutError):
+            self.invoke(*options, "--new")
+        self.assertEqual([row["id"] for row in self.invoke("watch", "list")], [self.key])
+        self.calls.assert_not_called()
+
     def test_classification_survives_quiet_reviews_and_is_independent_of_push(self):
         for flag, expected in [("answer", "answer"), (None, "answer"), ("resolved", "resolved"), ("normal", "normal")]:
             self.rows[0]["edit_at"] = self.now
@@ -191,6 +260,31 @@ class WatchTests(unittest.TestCase):
         self.now += 300
         self.invoke("tick", self.key)
         self.assertEqual(checked(), success)
+
+    def test_move_keeps_schedule_and_cursor_and_releases_original_binding(self):
+        # Exercise a subscription created before bindings were stored separately.
+        old_id = watches.watch_id(self.client.base, ROOT, "bb", "project", "target")
+        with closing(watches.connect()) as db, db:
+            state = json.loads(db.execute("SELECT data FROM watches WHERE id=?", (self.key,)).fetchone()[0])
+            db.execute("DELETE FROM watches WHERE id=?", (self.key,))
+            state.pop("binding")
+            state.update(id=old_id, schedule="job", parent_notices=["old"], pending_push=True)
+            watches.save(db, old_id, state)
+        move = ["edit", old_id, "--chat", "new-chat", "--environment", "new-env", "--owner", "new-project",
+                "--interval", "5", "--rule", "QA"]
+        self.invoke(*move)
+        with closing(watches.connect()) as db:
+            moved = json.loads(db.execute("SELECT data FROM watches WHERE id=?", (old_id,)).fetchone()[0])
+        self.assertEqual((moved["schedule"], moved["chat"], moved["environment"]), ("job", "new-chat", "new-env"))
+        self.assertEqual(moved["seen"], state["seen"])
+        self.assertFalse(moved["pending_push"])
+        self.assertNotIn("parent_notices", moved)
+        replacement = self.invoke(*self.options, "--new")
+        self.assertNotEqual(replacement["id"], old_id)
+        with self.assertRaisesRegex(ValueError, "уже подключён"):
+            self.invoke(*move, "--chat", "target", "--owner", "project")
+        self.invoke("unwatch", old_id)
+        self.calls.assert_called_with(["bb", "automation", "delete", "job", "--project", "project", "--yes"])
 
     def test_edit_invalidates_inflight_review_and_preserves_schedule(self):
         self.rows.append(post(REPLY, 3, ROOT))
@@ -588,6 +682,19 @@ class WatchTests(unittest.TestCase):
         self.invoke("resolve", key, token, "--message-file", str(text))
         self.assertEqual(self.calls.call_args.args[0][:4], ["bb", "thread", "tell", "child"])
         self.assertEqual(self.invoke("inbox", "--chat", "target")["unread"], 2)
+
+    def test_source_link_remains_blocked_until_identity_is_verified(self):
+        for failure, blocked in [(client.ApiError(503, "posts"), False), (client.SiteMismatch("Другой сервер"), True),
+                                 (client.ApiError(500, "posts"), True)]:
+            self.client.thread.side_effect = failure
+            self.invoke("check", self.key)
+            self.assertEqual(self.invoke("watch", "list")[0]["source_link_blocked"], blocked)
+        self.client.thread.side_effect = lambda _: ("team", ROOT, self.rows)
+        self.invoke("check", self.key)
+        self.assertNotIn("source_link_blocked", self.invoke("watch", "list")[0])
+        self.client.thread.side_effect = client.AuthError("session expired")
+        self.invoke("check", self.key)
+        self.assertFalse(self.invoke("watch", "list")[0]["source_link_blocked"])
 
     def test_inaccessible_source_preserves_cadence_and_catches_up(self):
         for status in (403, 404):

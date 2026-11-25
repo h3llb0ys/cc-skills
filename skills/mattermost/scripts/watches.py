@@ -40,10 +40,17 @@ def versions(posts):
     return {p["id"]: p.get("edit_at") or p["create_at"] for p in posts}
 
 
+def source_link_blocked(state):
+    return state.get("source_link_blocked", bool(state.get("source_problem") and state.get("kind") == "channel"))
+
+
 def public(state):
-    return {k: v for k, v in state.items()
+    data = {k: v for k, v in state.items()
             if k in ("id", "url", "platform", "chat", "owner", "interval", "rule", "push",
                      "until", "schedule", "setup_pending", "paused", "timezone", "push_problem", "source_problem", "last_checked_at", "destination", "kind", "channel", "title", "draft", "status")}
+    if state.get("source_problem"):
+        data["source_link_blocked"] = source_link_blocked(state)
+    return data
 
 
 def run(args, stdin=None):
@@ -90,13 +97,17 @@ def worker_prompt(state):
             "This command handles delivery to the configured chat. Do not send elsewhere.")
 
 
+def schedule_owner(state):
+    return state.get("schedule_owner", state["owner"])
+
+
 def registration(state):
     # A one-minute scheduler heartbeat also supports intervals that do not divide an hour.
     cmd = cli_command() + " tick " + state["id"]
     name = "mm-watch-" + state["id"]
     common = ["--name", name, "--timezone", state["timezone"]]
     if state["platform"] == "bb":
-        return ["bb", "automation", "create", "--project", state["owner"], *common,
+        return ["bb", "automation", "create", "--project", schedule_owner(state), *common,
                 "--cron", "* * * * *", "--interpreter", "sh", "--script", cmd, "--json"]
     return ["orca", "automations", "create", "--bot", state["owner"], *common, "--enabled",
             "--trigger", "* * * * *", "--precheck", cmd, "--precheck-timeout", "120",
@@ -105,7 +116,7 @@ def registration(state):
 
 def schedules(state):
     bb = state["platform"] == "bb"
-    command = (["bb", "automation", "list", "--project", state["owner"]] if bb
+    command = (["bb", "automation", "list", "--project", schedule_owner(state)] if bb
                else ["orca", "automations", "list"])
     data = json.loads(run([*command, "--json"]).stdout)
     return data if bb else data["result"]["automations"]
@@ -125,9 +136,9 @@ def enable(state):
         existing = found[0]["id"]
         cmd = cli_command() + " tick " + state["id"]
         if bb:
-            run(["bb", "automation", "update", existing, "--project", state["owner"], "--script", cmd])
+            run(["bb", "automation", "update", existing, "--project", schedule_owner(state), "--script", cmd])
             if found[0].get("enabled") is False:
-                run(["bb", "automation", "resume", existing, "--project", state["owner"]])
+                run(["bb", "automation", "resume", existing, "--project", schedule_owner(state)])
         else:
             run(["orca", "automations", "edit", existing, "--enabled", "--precheck", cmd, "--prompt", worker_prompt(state)])
     if not found:
@@ -145,29 +156,56 @@ def watch_id(base, source, platform, owner, chat):
     return hashlib.sha256(identity.encode()).hexdigest()[:20]
 
 
-def read_source(client, state):
-    if state.get("kind") == "channel":
-        team, _ = client.link(state["url"], "channels")
-        if not state.get("channel_id"):
-            def candidates():
+def resolve_channel_id(client, state):
+    if not state.get("channel_id"):
+        def candidates():
+            try:
+                yield client.channel(state["url"])[1]["id"]
+            except ApiError as error:
+                if error.status not in (403, 404):
+                    raise
+            for post_id in state.get("seen", {}):
                 try:
-                    yield client.channel(state["url"])[1]["id"]
+                    yield client.api("posts/" + post_id)["channel_id"]
                 except ApiError as error:
                     if error.status not in (403, 404):
                         raise
-                for post_id in state.get("seen", {}):
-                    try:
-                        yield client.api("posts/" + post_id)["channel_id"]
-                    except ApiError as error:
-                        if error.status not in (403, 404):
-                            raise
 
-            for candidate in candidates():
-                if watch_id(client.base, candidate, state["platform"], state["owner"], state["chat"]) == state["id"]:
-                    state["channel_id"] = candidate
-                    break
-            else:
-                raise ChannelUnavailable("Не удалось найти исходный канал. Укажите его текущую ссылку.")
+        for candidate in candidates():
+            if watch_id(client.base, candidate, state["platform"], state["owner"], state["chat"]) == state.get("binding", state["id"]):
+                state["channel_id"] = candidate
+                break
+        else:
+            raise ChannelUnavailable("Не удалось найти исходный канал. Укажите его текущую ссылку.")
+    return state["channel_id"]
+
+
+def bound_watch(db, binding):
+    # Legacy records used the source/recipient hash as both binding and permanent ID.
+    return db.execute("SELECT data FROM watches WHERE COALESCE(json_extract(data,'$.binding'),id)=?",
+                      (binding,)).fetchone()
+
+
+def move_watch(db, state, chat, owner, environment):
+    if not all((chat, owner, environment)):
+        raise ValueError("Для переноса нужны тред BB, проект и окружение")
+    base, _, _, source = state["url"].rsplit("/", 3)
+    if state.get("kind") == "channel":
+        source = state.get("channel_id") or resolve_channel_id(Client(), state)
+    binding = watch_id(base, source, "bb", owner, chat)
+    row = bound_watch(db, binding)
+    if row and json.loads(row[0])["id"] != state["id"]:
+        raise ValueError("Этот источник уже подключён к выбранному треду BB")
+    state.setdefault("schedule_owner", state["owner"])
+    state.update(binding=binding, owner=owner, chat=chat, environment=environment, pending_push=False)
+    state.pop("parent_notices", None)
+    state.pop("push_problem", None)
+
+
+def read_source(client, state):
+    if state.get("kind") == "channel":
+        team, _ = client.link(state["url"], "channels")
+        resolve_channel_id(client, state)
         channel = client.api("channels/" + state["channel_id"])
         state.update(channel=channel["name"], url=f"{client.base}/{team}/channels/{channel['name']}")
         posts, _ = client.posts_by_channel_id(state["channel_id"], state["window_start"], None)
@@ -216,12 +254,17 @@ def tick(state, now, force=False):
         state["last_checked_at"] = int(time.time())
         current = versions(posts)
         state.pop("source_problem", None)
+        state.pop("source_link_blocked", None)
         auth = False
     except (ChannelUnavailable, SiteMismatch, ApiError) as error:
+        state["source_link_blocked"] = (source_link_blocked(state) or isinstance(error, (ChannelUnavailable, SiteMismatch))
+                                        or (state.get("kind") == "channel" and isinstance(error, ApiError)
+                                            and error.status in (403, 404)))
         state["source_problem"] = str(error)
         return idle
     except AuthError:
         if force:
+            state["source_link_blocked"] = source_link_blocked(state)
             state["source_problem"] = "Сессия Mattermost истекла. Проверьте cookie в настройках."
         current = state["seen"]
         auth = True
@@ -309,7 +352,7 @@ def deliver_parent_notices(state):
 def pause(state):
     if state["schedule"]:
         if state["platform"] == "bb":
-            run(["bb", "automation", "pause", state["schedule"], "--project", state["owner"]])
+            run(["bb", "automation", "pause", state["schedule"], "--project", schedule_owner(state)])
         else:
             run(["orca", "automations", "edit", state["schedule"], "--disabled"])
 
@@ -326,14 +369,23 @@ def send_pending_push(db, state):
 def handle(args):
     with closing(connect()) as db, db:
         if args.action == "watch" and args.url == "list":
-            states = (json.loads(row[0]) for row in db.execute("SELECT data FROM watches"))
-            return [public(s) for s in states if not args.platform or s["platform"] == args.platform]
+            rows = db.execute("""SELECT w.data, s.child FROM watches w LEFT JOIN summary_threads s
+                ON json_extract(w.data, '$.destination') = 'shared' AND s.chat = json_extract(w.data, '$.chat')
+                WHERE ? IS NULL OR json_extract(w.data, '$.platform') = ?""", (args.platform, args.platform))
+            watches = []
+            for data, child in rows:
+                watch = public(json.loads(data))
+                if child:
+                    watch["summary_thread"] = child
+                watches.append(watch)
+            return watches
         if args.action == "board":
             db.execute("BEGIN")
             return {status: board.listing(db, status, getattr(args, status)) for status in board.SIGNALS}
         if args.action == "inbox":
             return inbox.listing(db, args.chat, args.before)
-        db.execute("BEGIN IMMEDIATE")
+        if args.action != "watch":
+            db.execute("BEGIN IMMEDIATE")
         if args.action == "read-card":
             updated = db.execute("UPDATE board_cards SET opened=1 WHERE id=? AND revision=?", (args.card, args.revision))
             return {"matched": bool(updated.rowcount)}
@@ -352,7 +404,7 @@ def handle(args):
                 raise ValueError("System push is available for BB. For Orca select chat delivery.")
             if args.until and args.until <= now:
                 raise ValueError("--until must be in the future")
-            client = Client()
+            client = Client(timeout=10) if args.new else Client()
             if urlsplit(args.url).path.rstrip("/").split("/")[-2:-1] == ["channels"]:
                 team, channel = client.channel(args.url)
                 root = channel["id"]
@@ -366,8 +418,10 @@ def handle(args):
                 title = (anchor["message"].strip().splitlines() or ["Ветка Mattermost"])[0][:96]
                 kind = "thread"
                 channel_name = client.api("channels/" + anchor["channel_id"]).get("name")
-            key = watch_id(client.base, root, args.platform, args.owner, args.chat)
-            row = db.execute("SELECT data FROM watches WHERE id=?", (key,)).fetchone()
+            # Serialize duplicate detection and saving only after the network read.
+            db.execute("BEGIN IMMEDIATE")
+            binding = watch_id(client.base, root, args.platform, args.owner, args.chat)
+            row = bound_watch(db, binding)
             if row:
                 state = json.loads(row[0])
                 if args.new:
@@ -381,7 +435,10 @@ def handle(args):
                 if state["paused"]:
                     raise ValueError("Remove the stopped subscription with unwatch before restarting")
             else:
-                state = dict(id=key, seen=versions(posts), schedule=None, auth_notified=False, paused=False,
+                # A moved watch may still own the original ID used by its scheduler.
+                occupied = db.execute("SELECT 1 FROM watches WHERE id=?", (binding,)).fetchone()
+                key = uuid.uuid4().hex[:20] if occupied else binding
+                state = dict(id=key, binding=binding, seen=versions(posts), schedule=None, auth_notified=False, paused=False,
                              window_start=posts[0]["create_at"] if posts else now * 1000)
             if args.new:
                 state["setup_pending"] = True
@@ -396,7 +453,7 @@ def handle(args):
             if not args.push:
                 state["pending_push"] = False
                 state.pop("push_problem", None)
-            save(db, key, state)
+            save(db, state["id"], state)
             return public(state)
         row = db.execute("SELECT data FROM watches WHERE id=?", (args.id,)).fetchone()
         if not row:
@@ -428,6 +485,8 @@ def handle(args):
                 raise ValueError("Only active BB subscriptions can be edited here")
             if not args.rule.strip() or (args.until is not None and args.until <= now):
                 raise ValueError("Check rule and end time")
+            if any((args.chat, args.owner, args.environment)):
+                move_watch(db, state, args.chat, args.owner, args.environment)
             if args.destination:
                 state["destination"] = args.destination
             state.update(interval=args.interval, rule=args.rule, push=args.push, draft=args.draft,
@@ -458,7 +517,7 @@ def handle(args):
             if state["schedule"]:
                 try:
                     if state["platform"] == "bb":
-                        run(["bb", "automation", "delete", state["schedule"], "--project", state["owner"], "--yes"])
+                        run(["bb", "automation", "delete", state["schedule"], "--project", schedule_owner(state), "--yes"])
                     else:
                         run(["orca", "automations", "remove", state["schedule"]])
                 except subprocess.CalledProcessError:
