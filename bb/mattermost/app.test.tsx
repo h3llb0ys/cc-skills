@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { fireEvent, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { expect, it, vi } from "vitest";
+import { mountSidebarRows } from "./hooks/sidebar-rows";
 import { contract } from "./contract";
 
 it("navigates from the registry, edits conditions and leaves the palette in plugin settings", async () => {
@@ -384,9 +385,9 @@ it("creates a watch from the empty subscriptions panel and keeps inputs when sch
   } finally { view.lifecycle.unmount(); }
 });
 
-it("saves the header mode alongside a live preview that uses sample subscriptions and the saved palette", async () => {
+it("saves the sidebar mode alongside a live preview that uses sample subscriptions and the saved palette", async () => {
   const app = await loadPluginApp(() => import("./app"));
-  const section = app.settingsSections.find(s => s.id === "thread-header")!;
+  const section = app.settingsSections.find(s => s.id === "sidebar-badges")!;
   let saved = "combined";
   const view = renderSlot(section, {}, { rpc: {
     headerMode: () => saved,
@@ -399,7 +400,7 @@ it("saves the header mode alongside a live preview that uses sample subscription
     await waitFor(() => expect(answer.querySelector("i")?.style.backgroundColor).toBe("rgb(18, 52, 86)"));
     fireEvent.click(answer);
     expect(view.getByRole("list").children).toHaveLength(1);
-    fireEvent.change(view.getByLabelText("Показывать под названием"), { target: { value: "important" } });
+    fireEvent.change(view.getByLabelText("Рядом с названием треда"), { target: { value: "important" } });
     await waitFor(() => expect(saved).toBe("important"));
     expect(view.queryByRole("button", { name: /Mattermost/ })).toBeNull();
     fireEvent.change(view.getByLabelText("Сценарий для примера"), { target: { value: "Всё спокойно" } });
@@ -409,13 +410,24 @@ it("saves the header mode alongside a live preview that uses sample subscription
   } finally { view.lifecycle.unmount(); }
 });
 
-it("filters header counts and expanded subscriptions by thread, priority and mode", async () => {
+function mountTestSidebar() {
+  const nav = document.createElement("nav");
+  nav.innerHTML = '<div><a data-sidebar-thread-id="t"></a><span><span class="bb-thread-title">My thread</span></span></div>';
+  document.body.append(nav);
+  const stop = mountSidebarRows();
+  return { nav, dispose() { stop(); nav.remove(); } };
+}
+
+it("places badges next to the sidebar title and filters counts and expanded subscriptions by thread, priority and mode", async () => {
   const app = await loadPluginApp(() => import("./app"));
   const watch = { id: "a".repeat(20), chat: "t", owner: "p", title: "Релиз", url: "https://mm.example/t/pl/a",
     interval: 10, rule: "QA", paused: false, push: null, until: null, schedule: "job", timezone: "UTC", status: "answer" };
   let mode = "off";
   let listCalls = 0;
-  const view = renderSlot(app.threadHeaderRows[0]!, { threadId: "t", projectId: "p", environment: null }, { rpc: {
+  const scans = vi.spyOn(document, "querySelectorAll");
+  const sidebar = mountTestSidebar();
+  expect(app.threadHeaderRows).toHaveLength(0);
+  const view = renderSlot(app.appOverlays[0]!, {}, { rpc: {
     headerMode: () => mode,
     list: () => { listCalls++; return { colors: { answer: null, attention: null, resolved: null }, watches: [watch,
       { ...watch, id: "b".repeat(20), title: "Дежурство", paused: false, status: "normal", source_problem: "Сессия истекла" },
@@ -424,11 +436,20 @@ it("filters header counts and expanded subscriptions by thread, priority and mod
   try {
     await waitFor(() => expect(view.inspection.rpcCalls.some(c => c.method === "headerMode")).toBe(true));
     expect(listCalls).toBe(0);
+    expect(scans).not.toHaveBeenCalledWith("[data-sidebar-thread-id]");
     mode = "combined";
     await view.behavior.experimental_invalidateRpc(["header-mode"]);
     fireEvent.click(await view.findByRole("button", { name: "Ждут ответа · 1" }));
     expect(view.getByRole("list").textContent).toContain("Релиз");
     expect(view.queryByText("Дежурство")).toBeNull();
+    const openDialog = view.getByRole("dialog");
+    const inserted = document.createElement("div");
+    inserted.innerHTML = '<a data-sidebar-thread-id="unrelated"></a><span><span class="bb-thread-title">New thread</span></span>';
+    await act(async () => { sidebar.nav.prepend(inserted); });
+    expect(view.queryByRole("dialog")).toBe(openDialog);
+    await act(async () => { inserted.remove(); });
+    fireEvent.keyDown(openDialog, { key: "Escape" });
+    expect(sidebar.nav.contains(view.getByRole("button", { name: "Mattermost · 2" }))).toBe(true);
     fireEvent.click(view.getByRole("button", { name: "Mattermost · 2" }));
     expect(view.getByRole("list").children).toHaveLength(2);
     expect(view.queryByText("Другая команда")).toBeNull();
@@ -437,15 +458,24 @@ it("filters header counts and expanded subscriptions by thread, priority and mod
     await view.findByRole("button", { name: "Сбой подписки · 1" });
     mode = "count";
     await view.behavior.experimental_invalidateRpc(["header-mode"]);
-    await waitFor(() => expect(view.queryByText("Сбой подписки")).toBeNull());
+    await waitFor(() => expect(view.queryByRole("button", { name: /Сбой подписки/ })).toBeNull());
     expect(view.getByRole("button", { name: "Mattermost · 2" })).toBeTruthy();
-  } finally { view.lifecycle.unmount(); }
+    sidebar.nav.querySelector("a")!.dataset.sidebarThreadId = "other";
+    await view.findByRole("button", { name: "Mattermost · 1" });
+    expect(view.queryByRole("button", { name: "Mattermost · 2" })).toBeNull();
+    mode = "off";
+    await view.behavior.experimental_invalidateRpc(["header-mode"]);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Mattermost · 1" })).toBeNull());
+    scans.mockClear();
+    await act(async () => { sidebar.nav.prepend(inserted); });
+    expect(scans).not.toHaveBeenCalledWith("[data-sidebar-thread-id]");
+  } finally { view.lifecycle.unmount(); sidebar.dispose(); scans.mockRestore(); }
 });
 
 it("keeps the acknowledged choice if a refresh fails and rolls back a rejected change", async () => {
   const app = await loadPluginApp(() => import("./app"));
   let saved = "combined", readFails = false;
-  const view = renderSlot(app.settingsSections.find(s => s.id === "thread-header")!, {}, { rpc: {
+  const view = renderSlot(app.settingsSections.find(s => s.id === "sidebar-badges")!, {}, { rpc: {
     headerMode: () => { if (readFails) throw Error("offline"); return saved; },
     colors: () => ({ answer: null, attention: null, resolved: null }),
     setHeaderMode: input => {
@@ -455,7 +485,7 @@ it("keeps the acknowledged choice if a refresh fails and rolls back a rejected c
     },
   } });
   try {
-    const select = await view.findByLabelText("Показывать под названием") as HTMLSelectElement;
+    const select = await view.findByLabelText("Рядом с названием треда") as HTMLSelectElement;
     readFails = true;
     fireEvent.change(select, { target: { value: "off" } });
     await waitFor(() => expect(saved).toBe("off"));
@@ -473,8 +503,8 @@ it("keeps the acknowledged choice if a refresh fails and rolls back a rejected c
 
 it("shares one list poll in split panes and forgets a filter when its badge disappears", async () => {
   const app = await loadPluginApp(() => import("./app"));
-  const slot = app.threadHeaderRows[0]!;
-  const props = { threadId: "t", projectId: "p", environment: null };
+  const slot = app.appOverlays[0]!;
+  const sidebar = mountTestSidebar();
   const watch = { id: "a".repeat(20), chat: "t", owner: "p", url: "https://mm.example/t/pl/a",
     interval: 10, rule: "QA", paused: false, push: null, until: null, schedule: "job", timezone: "UTC", status: "answer" };
   const rpc = { headerMode: () => "important", list: () => ({
@@ -482,9 +512,9 @@ it("shares one list poll in split panes and forgets a filter when its badge disa
   }) };
   const timer = vi.spyOn(window, "setInterval");
   const clearTimer = vi.spyOn(window, "clearInterval");
-  const first = renderSlot(slot, { ...props, threadId: "other" }, { rpc });
+  const first = renderSlot(app.threadContextCardSections[0]!, { threadId: "other", projectId: "p", environment: null }, { rpc });
   let firstMounted = true;
-  const second = renderSlot(slot, props, { rpc });
+  const second = renderSlot(slot, {}, { rpc });
   try {
     fireEvent.click(await second.findByRole("button", { name: /Ждут ответа/ }));
     expect(second.getByRole("list").children).toHaveLength(1);
@@ -503,6 +533,7 @@ it("shares one list poll in split panes and forgets a filter when its badge disa
   } finally {
     if (firstMounted) first.lifecycle.unmount();
     second.lifecycle.unmount();
+    sidebar.dispose();
     timer.mockRestore();
     clearTimer.mockRestore();
   }

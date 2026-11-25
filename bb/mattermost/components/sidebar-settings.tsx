@@ -4,9 +4,9 @@ import { contract, defaults } from "../contract";
 import { useColors } from "../hooks/use-colors";
 import { useHeaderMode } from "../hooks/use-header-mode";
 import { headerModes, headerModeLabels } from "../settings";
-import { HeaderBadges, type HeaderWatch } from "./thread-header";
+import { SidebarBadges, type SidebarWatch } from "./sidebar-badges";
 
-const examples: Record<string, HeaderWatch[]> = {
+const examples: Record<string, SidebarWatch[]> = {
   "Ждут ответа": [
     { id: "qa", name: "#qna-team-promo", status: "answer", paused: false },
     { id: "release", name: "Ветка · Релиз", status: "attention", paused: false },
@@ -17,7 +17,7 @@ const examples: Record<string, HeaderWatch[]> = {
   "Нет подписок": [],
 };
 
-export function HeaderSettings() {
+export function SidebarSettings() {
   const query = useHeaderMode();
   const colors = useColors();
   const change = experimental_useRpcMutation({
@@ -27,8 +27,8 @@ export function HeaderSettings() {
   const [scenario, setScenario] = useState("Ждут ответа");
   const mode = query.data;
   if (!mode) return query.error ? <p role="alert">Не удалось загрузить режим. <button onClick={() => void query.refetch()}>Повторить</button></p> : null;
-  return <div className="mm-ui mm-header-settings">
-    <div className="mm-fields"><label>Показывать под названием
+  return <div className="mm-ui mm-sidebar-settings">
+    <div className="mm-fields"><label>Рядом с названием треда
       <select value={mode} disabled={change.isPending} onChange={e => {
         const next = headerModes.find(key => key === e.target.value);
         if (next) void change.mutate(next).catch(() => { /* Displayed below via change.error. */ });
@@ -38,8 +38,8 @@ export function HeaderSettings() {
       <label>Сценарий для примера<select value={scenario} onChange={e => setScenario(e.target.value)}>
         {Object.keys(examples).map(name => <option key={name}>{name}</option>)}
       </select></label></div>
-    <div className="mm-header-preview" aria-label="Предпросмотр заголовка"><strong>Вопросы команды промо</strong>
-      <HeaderBadges key={mode + scenario} mode={mode} watches={examples[scenario]!} colors={colors.data ?? defaults} />
+    <div className="mm-sidebar-preview" aria-label="Предпросмотр строки сайдбара"><strong>Вопросы команды промо</strong>
+      <SidebarBadges key={mode + scenario} mode={mode} watches={examples[scenario]!} colors={colors.data ?? defaults} />
     </div>
     {change.error && <p role="alert">Не удалось сохранить режим. {change.error.message}</p>}
     {query.error && <p role="alert">Не удалось обновить режим. <button onClick={() => void query.refetch()}>Повторить</button></p>}
