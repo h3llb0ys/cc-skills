@@ -4,11 +4,17 @@ import { MattermostPanel } from "./components/board";
 import { ThreadSection } from "./components/thread-section";
 import { ColorSettings } from "./components/color-settings";
 import { ConnectionSettings } from "./components/connection-settings";
+import { ThreadHeader } from "./components/thread-header";
+import { HeaderSettings } from "./components/header-settings";
 import { Widget } from "./components/inbox";
 import "../shared-ui/color-palette.css";
 import "./app.css";
 
 export default definePluginApp(app => {
+  if (app.slots.experimental_threadHeaderRow) {
+    app.slots.experimental_threadHeaderRow({ id: "mattermost-watches", component: ThreadHeader });
+    app.slots.settingsSection({ id: "thread-header", title: "Заголовок треда", component: HeaderSettings });
+  }
   app.slots.settingsSection({ id: "connection", title: "Подключение к Mattermost", component: ConnectionSettings });
   app.slots.settingsSection({ id: "status-colors", title: "Цвета статусов", component: ColorSettings });
   app.slots.experimental_threadContextCardSection({

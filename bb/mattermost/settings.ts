@@ -9,3 +9,9 @@ export const watchActions = {
   app: "Открыть в приложении",
   edit: "Редактировать подписку",
 } as const;
+
+export const headerModes = ["combined", "count", "important", "off"] as const;
+export type HeaderMode = typeof headerModes[number];
+export const headerModeLabels: Record<HeaderMode, string> = {
+  combined: "Подписки и важное", count: "Счётчик подписок", important: "Только важное", off: "Скрыть",
+};

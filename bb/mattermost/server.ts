@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { contract, palette, type WatchSettings } from "./contract";
 
-import { sourceTargets, watchActions } from "./settings";
+import { headerModes, type HeaderMode, sourceTargets, watchActions } from "./settings";
 
 const execute = promisify(execFile);
 function watchOptions(input: WatchSettings) {
@@ -73,6 +73,15 @@ export default function mattermost(bb: BbPluginApi) {
   }
   bb.agents.contributeInstructions(() => 'When relaying a Mattermost watch notification, keep its summary and permalink. For a notification headed "Уведомление Mattermost · Ждут ответа", "Стоит посмотреть" or "Решено", show the corresponding status as a standalone ::mattermost-status{status="answer"} directive, using attention or resolved for the other two. An ordinary notification needs no directive.');
   bb.rpc.register(contract, {
+    headerMode: async () => {
+      const saved = await bb.storage.kv.get<HeaderMode>("headerMode");
+      return saved && headerModes.includes(saved) ? saved : "combined";
+    },
+    setHeaderMode: async mode => {
+      await bb.storage.kv.set("headerMode", mode);
+      bb.rpc.experimental_invalidate(["header-mode"]);
+      return null;
+    },
     board: offsets => cli(["board", ...Object.entries(offsets).flatMap(([status, offset]) =>
       offset ? ["--" + status, String(offset)] : [])]),
     readCard: async ({ id, revision }) => {

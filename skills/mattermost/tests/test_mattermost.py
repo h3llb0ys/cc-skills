@@ -562,7 +562,11 @@ class WatchTests(unittest.TestCase):
         self.rows.append(post(REPLY, 3, ROOT))
         self.invoke("tick", self.key)
         token = self.invoke("review", self.key)["token"]
+        self.assertFalse(self.invoke("watch", "list")[0]["paused"])
         self.now += 61
+        expired = self.invoke("watch", "list")[0]
+        self.assertTrue(expired["paused"])
+        self.assertFalse(expired["processing_pending"])
         self.assertEqual(self.invoke("review", self.key), {"idle": True})
         with self.assertRaisesRegex(ValueError, "ended"):
             self.invoke("resolve", self.key, token, "--status", "answer")

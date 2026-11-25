@@ -454,8 +454,11 @@ def handle(args):
                 ON json_extract(w.data, '$.destination') = 'shared' AND s.chat = json_extract(w.data, '$.chat')
                 WHERE ? IS NULL OR json_extract(w.data, '$.platform') = ?""", (args.platform, args.platform))
             watches = []
+            now = time.time()
             for data, child in rows:
                 watch = public(json.loads(data))
+                if watch.get("until") is not None and watch["until"] <= now:
+                    watch.update(paused=True, processing_pending=False)
                 if child:
                     watch["summary_thread"] = child
                 watches.append(watch)

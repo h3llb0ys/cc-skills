@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, waitFor } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { contract } from "./contract";
 
 it("navigates from the registry, edits conditions and leaves the palette in plugin settings", async () => {
@@ -382,4 +382,128 @@ it("creates a watch from the empty subscriptions panel and keeps inputs when sch
     await waitFor(() => expect(view.queryByRole("form", { name: "Новая подписка" })).toBeNull());
     expect(inputs).toMatchObject([{ url, chat: "thread1", interval: 10, push: null }, { url, chat: "thread1" }]);
   } finally { view.lifecycle.unmount(); }
+});
+
+it("saves the header mode alongside a live preview that uses sample subscriptions and the saved palette", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  const section = app.settingsSections.find(s => s.id === "thread-header")!;
+  let saved = "combined";
+  const view = renderSlot(section, {}, { rpc: {
+    headerMode: () => saved,
+    colors: () => ({ answer: "#123456", attention: null, resolved: null }),
+    setHeaderMode: input => { saved = contract.setHeaderMode.input.parse(input); return null; },
+  } });
+  try {
+    await view.findByRole("button", { name: "Mattermost · 3" });
+    const answer = view.getByRole("button", { name: /Ждут ответа/ });
+    await waitFor(() => expect(answer.querySelector("i")?.style.backgroundColor).toBe("rgb(18, 52, 86)"));
+    fireEvent.click(answer);
+    expect(view.getByRole("list").children).toHaveLength(1);
+    fireEvent.change(view.getByLabelText("Показывать под названием"), { target: { value: "important" } });
+    await waitFor(() => expect(saved).toBe("important"));
+    expect(view.queryByRole("button", { name: /Mattermost/ })).toBeNull();
+    fireEvent.change(view.getByLabelText("Сценарий для примера"), { target: { value: "Всё спокойно" } });
+    expect(view.queryByRole("button", { name: /Ждут ответа/ })).toBeNull();
+    expect(view.getByText("Вопросы команды промо")).toBeTruthy();
+    expect(saved).toBe("important");
+  } finally { view.lifecycle.unmount(); }
+});
+
+it("filters header counts and expanded subscriptions by thread, priority and mode", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  const watch = { id: "a".repeat(20), chat: "t", owner: "p", title: "Релиз", url: "https://mm.example/t/pl/a",
+    interval: 10, rule: "QA", paused: false, push: null, until: null, schedule: "job", timezone: "UTC", status: "answer" };
+  let mode = "off";
+  let listCalls = 0;
+  const view = renderSlot(app.threadHeaderRows[0]!, { threadId: "t", projectId: "p", environment: null }, { rpc: {
+    headerMode: () => mode,
+    list: () => { listCalls++; return { colors: { answer: null, attention: null, resolved: null }, watches: [watch,
+      { ...watch, id: "b".repeat(20), title: "Дежурство", paused: false, status: "normal", source_problem: "Сессия истекла" },
+      { ...watch, id: "c".repeat(20), title: "Другая команда", chat: "other" }] }; },
+  } });
+  try {
+    await waitFor(() => expect(view.inspection.rpcCalls.some(c => c.method === "headerMode")).toBe(true));
+    expect(listCalls).toBe(0);
+    mode = "combined";
+    await view.behavior.experimental_invalidateRpc(["header-mode"]);
+    fireEvent.click(await view.findByRole("button", { name: "Ждут ответа · 1" }));
+    expect(view.getByRole("list").textContent).toContain("Релиз");
+    expect(view.queryByText("Дежурство")).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Mattermost · 2" }));
+    expect(view.getByRole("list").children).toHaveLength(2);
+    expect(view.queryByText("Другая команда")).toBeNull();
+    watch.paused = true;
+    await view.behavior.emitRealtime("changed", {});
+    await view.findByRole("button", { name: "Сбой подписки · 1" });
+    mode = "count";
+    await view.behavior.experimental_invalidateRpc(["header-mode"]);
+    await waitFor(() => expect(view.queryByText("Сбой подписки")).toBeNull());
+    expect(view.getByRole("button", { name: "Mattermost · 2" })).toBeTruthy();
+  } finally { view.lifecycle.unmount(); }
+});
+
+it("keeps the acknowledged choice if a refresh fails and rolls back a rejected change", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  let saved = "combined", readFails = false;
+  const view = renderSlot(app.settingsSections.find(s => s.id === "thread-header")!, {}, { rpc: {
+    headerMode: () => { if (readFails) throw Error("offline"); return saved; },
+    colors: () => ({ answer: null, attention: null, resolved: null }),
+    setHeaderMode: input => {
+      if (input === "important") throw Error("ошибка записи");
+      saved = contract.setHeaderMode.input.parse(input);
+      return null;
+    },
+  } });
+  try {
+    const select = await view.findByLabelText("Показывать под названием") as HTMLSelectElement;
+    readFails = true;
+    fireEvent.change(select, { target: { value: "off" } });
+    await waitFor(() => expect(saved).toBe("off"));
+    await view.behavior.experimental_invalidateRpc(["header-mode"]);
+    await view.findByText(/Не удалось обновить режим/);
+    expect(select.value).toBe("off");
+    readFails = false;
+    fireEvent.click(view.getByText("Повторить"));
+    await waitFor(() => expect(view.queryByRole("alert")).toBeNull());
+    fireEvent.change(select, { target: { value: "important" } });
+    await view.findByText(/Не удалось сохранить режим/);
+    expect(select.value).toBe("off");
+  } finally { view.lifecycle.unmount(); }
+});
+
+it("shares one list poll in split panes and forgets a filter when its badge disappears", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  const slot = app.threadHeaderRows[0]!;
+  const props = { threadId: "t", projectId: "p", environment: null };
+  const watch = { id: "a".repeat(20), chat: "t", owner: "p", url: "https://mm.example/t/pl/a",
+    interval: 10, rule: "QA", paused: false, push: null, until: null, schedule: "job", timezone: "UTC", status: "answer" };
+  const rpc = { headerMode: () => "important", list: () => ({
+    colors: { answer: null, attention: null, resolved: null }, watches: [watch],
+  }) };
+  const timer = vi.spyOn(window, "setInterval");
+  const clearTimer = vi.spyOn(window, "clearInterval");
+  const first = renderSlot(slot, { ...props, threadId: "other" }, { rpc });
+  let firstMounted = true;
+  const second = renderSlot(slot, props, { rpc });
+  try {
+    fireEvent.click(await second.findByRole("button", { name: /Ждут ответа/ }));
+    expect(second.getByRole("list").children).toHaveLength(1);
+    await waitFor(() => expect(first.inspection.rpcCalls.some(call => call.method === "list")).toBe(true));
+    const timers = timer.mock.calls.flatMap((args, i) => args[1] === 30000 ? [timer.mock.results[i]!.value] : []);
+    expect(timers).toHaveLength(1);
+    first.lifecycle.unmount();
+    firstMounted = false;
+    expect(clearTimer).not.toHaveBeenCalledWith(timers[0]);
+    watch.status = "resolved";
+    await second.behavior.emitRealtime("changed", {});
+    await waitFor(() => expect(second.queryByRole("button")).toBeNull());
+    watch.status = "answer";
+    await second.behavior.emitRealtime("changed", {});
+    expect((await second.findByRole("button", { name: /Ждут ответа/ })).getAttribute("aria-expanded")).toBe("false");
+  } finally {
+    if (firstMounted) first.lifecycle.unmount();
+    second.lifecycle.unmount();
+    timer.mockRestore();
+    clearTimer.mockRestore();
+  }
 });
