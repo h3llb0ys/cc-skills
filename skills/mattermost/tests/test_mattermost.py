@@ -99,6 +99,14 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(target.read_bytes(), b"file")
             self.assertEqual(list(Path(folder).iterdir()), [target])
 
+    def test_render_posts_offline_keeps_author_identity_links_and_attachments(self):
+        row = post(ROOT, 1000)
+        row.update(file_ids=[REPLY, TEAM], metadata={"files": [{"id": TEAM, "name": "screenshot.png"}]})
+        with patch.object(self.api, "api", side_effect=AssertionError("unexpected network request")):
+            rendered, = self.api.render_posts("team", [row], {OTHER: "owner"})
+        self.assertEqual((rendered["author"], rendered["author_id"], rendered["url"]), ("owner", OTHER, URL + ROOT))
+        self.assertEqual(rendered["files"], [{"id": REPLY, "name": None}, {"id": TEAM, "name": "screenshot.png"}])
+
     def test_thread_pages_including_reply_permalink_and_tied_times(self):
         root, a, b = post(ROOT, 1), post(REPLY, 2, ROOT), post(OTHER, 2, ROOT)
         pages = [a, {"posts": {ROOT: root, REPLY: a}, "has_next": True},
@@ -205,6 +213,7 @@ class WatchTests(unittest.TestCase):
         self.client.base = "https://mm.example"
         self.client.api.return_value = {"id": OTHER, "username": "owner"}
         self.client.thread.side_effect = lambda url: ("team", ROOT, self.rows)
+        self.client.render_posts.side_effect = lambda team, rows, names: rows
         self.client.render.side_effect = lambda team, rows: rows
         calls = patch.object(watches, "run")
         self.calls = calls.start()
@@ -393,16 +402,140 @@ class WatchTests(unittest.TestCase):
         self.invoke("resolve", self.key, token, "--message-file", str(text), "--push")
         self.assertFalse(any("push-notifications" in c.args[0] for c in self.calls.call_args_list))
 
-    def test_two_reviews_cannot_acknowledge_each_others_snapshots(self):
+    def test_retries_review_the_same_snapshot_offline_and_deliver_once(self):
         self.rows.append(post(REPLY, 3, ROOT))
         self.invoke("tick", self.key)
         first = self.invoke("review", self.key)
         self.rows.append(post(OTHER, 4, ROOT))
         second = self.invoke("review", self.key)
-        self.assertEqual(second["changed"], [REPLY, OTHER])
+        self.assertEqual(second["changed"], [REPLY])
+        self.assertEqual(second["token"], first["token"])
+        self.now += 300
+        self.client.reset_mock()
+        self.invoke("tick", self.key)
+        self.assertEqual(self.calls.call_count, 2)
+        self.assertEqual(self.invoke("review", self.key)["changed"], [REPLY])
+        self.assertEqual(self.client.method_calls, [])
+        message = Path(self.folder.name) / "message"
+        message.write_text("Готово")
+        self.invoke("resolve", self.key, first["token"], "--message-file", str(message))
         with self.assertRaisesRegex(ValueError, "Stale"):
-            self.invoke("resolve", self.key, first["token"])
-        self.invoke("resolve", self.key, second["token"])
+            self.invoke("resolve", self.key, second["token"], "--message-file", str(message))
+        self.assertEqual(self.invoke("inbox", "--chat", "target")["unread"], 1)
+        state = self.invoke("watch", "list")[0]
+        self.assertFalse(state["processing_pending"])
+        self.assertEqual(state["last_processed_at"], self.now)
+        self.now += 300
+        self.invoke("tick", self.key)
+        self.assertEqual(self.invoke("review", self.key)["changed"], [OTHER])
+
+    def test_worker_can_read_committed_batch_before_spawn_returns(self):
+        self.rows.append(post(REPLY, 3, ROOT))
+        def worker(*args):
+            self.assertEqual(self.invoke("review", self.key)["changed"], [REPLY])
+        self.calls.side_effect = worker
+        self.invoke("tick", self.key)
+        self.calls.assert_called_once()
+
+    def test_interrupted_preparation_preserves_snapshot_without_advancing_seen(self):
+        self.rows.append(post(REPLY, 3, ROOT))
+        self.client.render.side_effect = KeyboardInterrupt()
+        with self.assertRaises(KeyboardInterrupt):
+            self.invoke("tick", self.key)
+        self.assertTrue(self.invoke("watch", "list")[0]["processing_pending"])
+        self.client.thread.side_effect = AssertionError("source fetched twice")
+        self.client.api.side_effect = AssertionError("network access during retry")
+        self.now += 300
+        self.invoke("tick", self.key)
+        self.assertEqual(self.invoke("review", self.key)["changed"], [REPLY])
+
+    def test_preparation_and_dispatch_failures_keep_the_captured_posts(self):
+        self.rows.append(post(REPLY, 3, ROOT))
+        self.client.render.side_effect = TimeoutError("profiles offline")
+        self.calls.side_effect = OSError("spawn failed")
+        self.invoke("tick", self.key)
+        self.assertIn("dispatch_problem", self.invoke("watch", "list")[0])
+        self.client.render_posts.assert_called_once()
+        self.client.thread.side_effect = AssertionError("source fetched twice")
+        self.now += 300
+        self.calls.side_effect = None
+        self.invoke("tick", self.key)
+        self.assertEqual(self.invoke("review", self.key)["changed"], [REPLY])
+
+    def test_legacy_raw_snapshot_is_revalidated_under_the_current_account(self):
+        with closing(watches.connect()) as db, db:
+            data = json.loads(db.execute("SELECT data FROM watches WHERE id=?", (self.key,)).fetchone()[0])
+            data["unprepared"] = ["team", self.rows + [post(REPLY, 3, ROOT)]]
+            watches.save(db, self.key, data)
+        self.client.api.return_value = {"id": TEAM, "username": "new-user"}
+        self.client.thread.side_effect = client.ApiError(403, "posts")
+        self.invoke("tick", self.key)
+        self.assertTrue(self.invoke("review", self.key)["idle"])
+        self.calls.assert_not_called()
+        self.assertFalse(self.invoke("watch", "list")[0]["processing_pending"])
+
+    def test_enrichment_allows_concurrent_edit_without_overwriting_it(self):
+        self.rows.append(post(REPLY, 3, ROOT))
+        def edit_while_rendering(team, rows):
+            self.invoke("edit", self.key, "--rule", "Updated", "--interval", "7")
+            return rows
+        self.client.render.side_effect = edit_while_rendering
+        self.invoke("tick", self.key)
+        self.calls.assert_not_called()
+        with patch.object(watches, "Client", side_effect=AssertionError("unexpected network access")):
+            self.invoke("tick", self.key)
+            review = self.invoke("review", self.key)
+        self.assertEqual((review["rule"], review["changed"]), ("Updated", [REPLY]))
+
+    def test_edited_batch_retries_offline_as_original_owner_at_capture_time(self):
+        self.rows.append(post(REPLY, 3, ROOT))
+        captured = self.now
+        self.invoke("tick", self.key)
+        old = self.invoke("review", self.key)
+        self.now += 300
+        self.invoke("edit", self.key, "--rule", "Updated", "--interval", "7")
+        with patch.object(watches, "Client", side_effect=AssertionError("unexpected network access")):
+            self.invoke("tick", self.key)
+            batch = self.invoke("review", self.key)
+        self.assertEqual(batch["watching_as"], old["watching_as"])
+        self.assertEqual(batch["now"], client.timestamp(captured * 1000))
+        with self.assertRaisesRegex(ValueError, "Stale"):
+            self.invoke("resolve", self.key, old["token"])
+        self.invoke("resolve", self.key, batch["token"], "--recheck-at", client.timestamp((captured + 10) * 1000))
+        self.rows.append(post(OTHER, 4, ROOT))
+        self.invoke("tick", self.key)
+        self.assertIn(OTHER, self.invoke("review", self.key)["changed"])
+
+    def test_do_not_start_another_live_worker_before_lease_expires(self):
+        self.rows.append(post(REPLY, 3, ROOT))
+        self.calls.side_effect = [subprocess.CompletedProcess([], 0, '{"id":"worker"}'),
+                                  subprocess.CompletedProcess([], 0, '{"thread":{"status":"active"}}'),
+                                  subprocess.CompletedProcess([], 0, '{"thread":{"status":"idle"}}'),
+                                  subprocess.CompletedProcess([], 0, '{"id":"replacement"}')]
+        self.invoke("tick", self.key)
+        token = self.invoke("review", self.key)["token"]
+        self.now += 300
+        self.invoke("tick", self.key)
+        self.assertEqual(self.calls.call_args.args[0][:3], ["bb", "thread", "show"])
+        self.now += 300
+        self.invoke("tick", self.key)
+        self.assertEqual(self.calls.call_args.args[0][:3], ["bb", "thread", "spawn"])
+        self.assertEqual(self.invoke("review", self.key)["token"], token)
+
+    def test_missing_delivery_ack_keeps_summary_and_consumes_receipt(self):
+        self.rows.append(post(REPLY, 3, ROOT))
+        self.invoke("tick", self.key)
+        token = self.invoke("review", self.key)["token"]
+        text = Path(self.folder.name) / "message"
+        text.write_text("Готово")
+        def no_ack(args, body):
+            raise subprocess.TimeoutExpired(args, 60)
+        self.calls.side_effect = no_ack
+        self.invoke("resolve", self.key, token, "--message-file", str(text))
+        with self.assertRaisesRegex(ValueError, "Stale"):
+            self.invoke("resolve", self.key, token, "--message-file", str(text))
+        self.assertIn("delivery_problem", self.invoke("watch", "list")[0])
+        self.assertEqual(self.invoke("inbox", "--chat", "target")["unread"], 1)
 
     def test_legacy_channel_identity_is_verified_before_migration(self):
         self.client.channel.return_value = ("team", {"id":CHANNEL, "name":"qa", "display_name":"QA"})
@@ -434,6 +567,12 @@ class WatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ended"):
             self.invoke("resolve", self.key, token, "--status", "answer")
         self.assertFalse(any("tell" in c.args[0] for c in self.calls.call_args_list))
+        self.invoke("tick", self.key)
+        self.assertFalse(self.invoke("watch", "list")[0]["processing_pending"])
+        with closing(watches.connect(readonly=True)) as db:
+            data = json.loads(db.execute("SELECT data FROM watches WHERE id=?", (self.key,)).fetchone()[0])
+        self.assertNotIn("batch", data)
+        self.assertIsNone(data["token"])
 
     def test_no_wake_until_change_or_due_and_no_repeat(self):
         self.assertEqual(self.invoke("tick", self.key), 0)

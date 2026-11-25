@@ -238,7 +238,7 @@ it("shows this thread's subscriptions in the card and Info with a check time and
   const props = { threadId: "target", projectId: "p", environment: null };
   const own = { id: "a".repeat(20), chat: "target", owner: "p", title: "Promo", kind: "channel",
     url: "https://mm.example/team/channels/promo", interval: 10, rule: "QA", until: null, push: null,
-    schedule: "schedule", paused: false, timezone: "UTC", status: "answer", last_checked_at: 1800000000 };
+    schedule: "schedule", paused: false, timezone: "UTC", status: "answer", last_checked_at: 1800000000, last_processed_at: 1799999100, processing_pending: true };
   const rpc = { list: () => ({ watches: [own, { ...own, chat: "other", title: "Other channel" }],
     colors: { answer: "#123456", attention: null, resolved: null } }) };
   for (const section of [app.threadContextCardSections[0]!, app.threadInfoSections[0]!]) {
@@ -249,6 +249,8 @@ it("shows this thread's subscriptions in the card and Info with a check time and
       expect(link.querySelector(".mm-action-glyph")?.getAttribute("data-icon")).toBe("ExternalLink");
       expect(view.queryByText("Other channel")).toBeNull();
       expect(view.getByText("Ждут ответа").querySelector("i")?.style.backgroundColor).toBe("rgb(18, 52, 86)");
+      expect(view.getByText(/Ожидает обработки/)).toBeTruthy();
+      expect(view.getByText(/^Обработано/).getAttribute("datetime")).toBe(new Date(own.last_processed_at * 1000).toISOString());
       expect(view.container.querySelector("time")?.dateTime).toBe(new Date(own.last_checked_at * 1000).toISOString());
     } finally { view.lifecycle.unmount(); }
     for (const [action, archived] of [["Открыть тред BB", false], ["Открыть тред BB", true], ["Редактировать подписку", false]] as const) {

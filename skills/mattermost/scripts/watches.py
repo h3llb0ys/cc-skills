@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 import uuid
-from contextlib import closing
+from contextlib import closing, contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -22,8 +22,10 @@ class ChannelUnavailable(ValueError):
     pass
 
 
-def connect():
+def connect(readonly=False):
     folder = Path(os.environ.get("MM_STATE_DIR", "~/.local/state/cc-skills/mattermost")).expanduser()
+    if readonly:
+        return sqlite3.connect((folder / "watches.sqlite3").resolve().as_uri() + "?mode=ro", uri=True, timeout=60)
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     db = sqlite3.connect(folder / "watches.sqlite3", timeout=60)
     db.execute("CREATE TABLE IF NOT EXISTS watches (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
@@ -47,7 +49,8 @@ def source_link_blocked(state):
 def public(state):
     data = {k: v for k, v in state.items()
             if k in ("id", "url", "platform", "chat", "owner", "interval", "rule", "push",
-                     "until", "schedule", "setup_pending", "paused", "timezone", "push_problem", "source_problem", "last_checked_at", "destination", "kind", "channel", "title", "draft", "status")}
+                     "until", "schedule", "setup_pending", "paused", "timezone", "push_problem", "source_problem", "dispatch_problem", "delivery_problem", "last_checked_at", "last_processed_at", "destination", "kind", "channel", "title", "draft", "status")}
+    data["processing_pending"] = not state["paused"] and bool(state.get("batch") or state.get("unprepared"))
     if state.get("source_problem"):
         data["source_link_blocked"] = source_link_blocked(state)
     return data
@@ -77,8 +80,7 @@ def worker_prompt(state):
             "For unrelated chatter omit --status to preserve the prior assessment. Classify from the "
             "whole conversation; color does not imply push. Include a draft when draft is true. "
             "Use --awaiting POST_ID for every new personal question and --answered POST_ID "
-            "only when that particular question was answered. Removed questions are cleared at resolve. Inspect still-open questions via their "
-            "permalinks before clearing them. Remaining questions keep answer status. "
+            "only when that particular question was answered. Removed questions are cleared at resolve. Use the question and replies in this local snapshot to decide closure. Remaining questions keep answer status. "
             "Ignore questions already answered. For an unmet delay use --recheck-at with the absolute "
             "deadline based on question time, even if there will be no more posts. At a due reminder, "
             "reassess the retained context and schedule the earliest remaining unanswered deadline. "
@@ -231,87 +233,166 @@ def read_source(client, state):
     return team, posts
 
 
-def tick(state, now, force=False):
+def restart_batch(state):
+    # Settings invalidate issued receipts. Keep messages captured before the edit.
+    state.update(token=uuid.uuid4().hex if state.get("batch") else None, lease=0, retry_at=0)
+    state.pop("worker_thread", None)
+    state.pop("dispatch_problem", None)
+
+
+def clear_batch(state):
+    for key in ("batch", "unprepared", "worker_thread", "dispatch_problem", "retry_at", "board_context", "reviewed", "recent_seen"):
+        state.pop(key, None)
+
+
+class WatchChanged(Exception):
+    """Another process edited, deleted or completed this subscription."""
+
+
+@contextmanager
+def outside_write_lock(db, state):
+    data = json.dumps(state)
+    db.execute("UPDATE watches SET data=? WHERE id=?", (data, state["id"]))
+    db.commit()
+    try:
+        yield
+    finally:
+        db.execute("BEGIN IMMEDIATE")
+        if not db.execute("SELECT 1 FROM watches WHERE id=? AND data=?", (state["id"], data)).fetchone():
+            raise WatchChanged()
+
+
+def prepare_batch(db, state, reminder_due):
+    # An interrupted enrichment already has an offline copy bound to its original account.
+    snapshot = state.get("unprepared")
+    if not isinstance(snapshot, dict):
+        # Early builds stored raw posts with no account identity. Read those again
+        # under the current session before associating them with its owner.
+        state.pop("unprepared", None)
+        with outside_write_lock(db, state):
+            client = Client()
+            me = client.api("users/me")
+            team, posts = read_source(client, state)
+        state["last_checked_at"] = int(time.time())
+        state.pop("source_problem", None)
+        state.pop("source_link_blocked", None)
+        state["auth_notified"] = False
+        current = versions(posts)
+        if current == state["seen"] and not reminder_due:
+            return False
+        snapshot = dict(posts=client.render_posts(team, posts, {me["id"]: me["username"]}),
+                        watching_as={"id": me["id"], "username": me["username"]})
+        state.update(unprepared=snapshot, reviewed=current, token=None, lease=0)
+        if state.get("kind") == "channel":
+            state["recent_seen"] = {p["id"]: current[p["id"]] for p in posts if p["create_at"] >= state["recent_start"]}
+        with outside_write_lock(db, state):
+            try:
+                snapshot["posts"] = client.render(team, posts)
+            except (ApiError, AuthError, OSError):
+                pass  # Usernames and file names are optional.
+    state["batch"] = snapshot
+    state.pop("unprepared", None)
+    if state["platform"] == "bb":
+        state["board_context"] = {p["id"]: dict(author=p.get("author", ""), message=p.get("message", "")[:1000])
+                                  for p in snapshot["posts"]}
+    return True
+
+
+def worker_running(worker):
+    try:
+        response = run(["bb", "thread", "show", worker, "--json"])
+        thread = json.loads(response.stdout)["thread"]
+    except (OSError, subprocess.SubprocessError, KeyError, ValueError):
+        return False
+    return thread["status"] in ("pending", "starting", "active", "stopping") and not thread.get("archivedAt")
+
+
+def tick(db, state, now, force=False):
     orca = state["platform"] == "orca"
     idle = 1 if orca else 0  # Orca precheck continues on zero only.
     if state["paused"]:
+        clear_batch(state)
         return idle
     if state["until"] and now >= state["until"]:
         pause(state)
-        state["paused"] = True
+        clear_batch(state)
+        state.update(paused=True, token=None, lease=0)
         return idle
     reminder_due = bool(state.get("recheck") and state["recheck"] <= now)
     regular_due = now >= state["next"]
-    if state.get("lease", 0) > now:
+    # A worker that already read a legacy batch can still finish during the upgrade.
+    legacy_worker = state.get("token") and state.get("reviewed") is not None and not state.get("batch") and not state.get("unprepared")
+    if legacy_worker and state.get("lease", 0) > now:
+        return idle
+    if state.get("batch") and state.get("retry_at", 0) > now and not (force and state.get("dispatch_problem")):
         return idle
     if not force and not regular_due and (not reminder_due or state["auth_notified"] or state.get("source_problem")):
         return idle
     if regular_due:
         interval = state["interval"] * 60
         state["next"] += ((now - state["next"]) // interval + 1) * interval
-    try:
-        _, posts = read_source(Client(), state)
-        state["last_checked_at"] = int(time.time())
-        current = versions(posts)
-        state.pop("source_problem", None)
-        state.pop("source_link_blocked", None)
-        auth = False
-    except (ChannelUnavailable, SiteMismatch, ApiError) as error:
-        state["source_link_blocked"] = (source_link_blocked(state) or isinstance(error, (ChannelUnavailable, SiteMismatch))
-                                        or (state.get("kind") == "channel" and isinstance(error, ApiError)
-                                            and error.status in (403, 404)))
-        state["source_problem"] = str(error)
-        return idle
-    except AuthError:
-        if force:
-            state["source_link_blocked"] = source_link_blocked(state)
-            state["source_problem"] = "Сессия Mattermost истекла. Проверьте cookie в настройках."
-        current = state["seen"]
-        auth = True
-    if auth and state["auth_notified"]:
-        return idle
-    if not auth:
-        state["auth_notified"] = False
-        if current == state["seen"] and not reminder_due:
+    if not state.get("batch"):
+        try:
+            if not prepare_batch(db, state, reminder_due):
+                return idle
+            auth = False
+        except (ChannelUnavailable, SiteMismatch, ApiError, OSError) as error:
+            state["source_link_blocked"] = (source_link_blocked(state) or isinstance(error, (ChannelUnavailable, SiteMismatch))
+                                            or (state.get("kind") == "channel" and isinstance(error, ApiError)
+                                                and error.status in (403, 404)))
+            state["source_problem"] = str(error)
             return idle
-    state.update(token=uuid.uuid4().hex, auth=auth, reviewed=None, lease=now + 900)
+        except AuthError:
+            if force:
+                state["source_link_blocked"] = source_link_blocked(state)
+                state["source_problem"] = "Сессия Mattermost истекла. Проверьте cookie в настройках."
+            if state["auth_notified"]:
+                return idle
+            state["reviewed"] = state["seen"]
+            state["batch"] = {"event": "Mattermost cookie expired or missing"}
+            auth = True
+        state.update(token=uuid.uuid4().hex, auth=auth, reviewed_at=now if auth else state["last_checked_at"])
+    if state.get("worker_thread") and state.get("lease", 0) > now:
+        with outside_write_lock(db, state):
+            if worker_running(state["worker_thread"]):
+                return idle
+    # Retrying the same immutable batch keeps a slow worker's receipt valid.
+    now = int(time.time())
+    state.pop("worker_thread", None)
+    state.update(lease=now + max(900, state["interval"] * 60), retry_at=max(now + 1, state["next"]))
     if not orca:
-        run(["bb", "thread", "spawn", "--project", state["owner"], "--environment", state["environment"],
-             "--visibility", "hidden", "--lifecycle-owner-thread", state["chat"], "--prompt-file", "-",
-             "--title", "Mattermost watch", "--json"], worker_prompt(state))
+        state.pop("dispatch_problem", None)
+        with outside_write_lock(db, state):
+            try:
+                response = run(["bb", "thread", "spawn", "--project", state["owner"], "--environment", state["environment"],
+                     "--visibility", "hidden", "--lifecycle-owner-thread", state["chat"], "--prompt-file", "-",
+                     "--title", "Mattermost watch", "--json"], worker_prompt(state))
+                thread = json.loads(response.stdout) if response and response.stdout else {}
+                if isinstance(thread, dict) and thread.get("id"):
+                    state["worker_thread"] = thread["id"]
+            except (OSError, subprocess.SubprocessError, ValueError) as error:
+                state["dispatch_problem"] = f"Не удалось запустить разбор ({type(error).__name__}). Повторим по расписанию."
     return 0
 
 
 def review(state, now):
     if not state.get("token") or state["paused"] or (state["until"] and state["until"] <= now) or state["lease"] <= now:
         return {"idle": True}
-    if state.get("reviewed") is not None:
-        state["token"] = uuid.uuid4().hex
-    state["reviewed_at"] = now
-    result = dict(public(state), token=state["token"], now=timestamp(now * 1000))
+    batch = state.get("batch")
+    if not batch:
+        return {"idle": True}
+    result = dict(public(state), token=state["token"], now=timestamp(state["reviewed_at"] * 1000))
     if state["auth"]:
-        state["reviewed"] = state["seen"]
-        result["event"] = "Mattermost cookie expired or missing"
+        result["event"] = batch["event"]
         return result
-    client = Client()
-    me = client.api("users/me")
-    result["watching_as"] = {"id": me["id"], "username": me["username"]}
-    team, posts = read_source(client, state)
-    state["last_checked_at"] = int(time.time())
-    result.update(public(state))
-    snapshot = versions(posts)
-    state["reviewed"] = snapshot
+    snapshot = state["reviewed"]
     awaiting = set(state.get("awaiting", []))
     if state.get("kind") == "channel" or awaiting:
-        result["awaiting"] = {key: f"{client.base}/{team}/pl/{key}" for key in sorted(awaiting.intersection(snapshot))}
+        prefix = state["url"].rsplit("/", 2)[0] + "/pl/"
+        result["awaiting"] = {key: prefix + key for key in sorted(awaiting.intersection(snapshot))}
         result["removed_questions"] = sorted(awaiting.difference(snapshot))
-    if state.get("kind") == "channel":
-        state["recent_seen"] = {p["id"]: snapshot[p["id"]] for p in posts if p["create_at"] >= state["recent_start"]}
     result.update(changed=[key for key, version in snapshot.items() if state["seen"].get(key) != version],
-                  recheck_at=state.get("recheck"), posts=client.render(team, posts))
-    if state["platform"] == "bb":
-        state["board_context"] = {p["id"]: dict(author=p.get("author", ""), message=p.get("message", "")[:1000])
-                                  for p in result["posts"]}
+                  recheck_at=state.get("recheck"), posts=batch["posts"], watching_as=batch["watching_as"])
     return result
 
 
@@ -367,7 +448,7 @@ def send_pending_push(db, state):
 
 
 def handle(args):
-    with closing(connect()) as db, db:
+    with closing(connect(readonly=args.action == "review")) as db, db:
         if args.action == "watch" and args.url == "list":
             rows = db.execute("""SELECT w.data, s.child FROM watches w LEFT JOIN summary_threads s
                 ON json_extract(w.data, '$.destination') = 'shared' AND s.chat = json_extract(w.data, '$.chat')
@@ -384,7 +465,9 @@ def handle(args):
             return {status: board.listing(db, status, getattr(args, status)) for status in board.SIGNALS}
         if args.action == "inbox":
             return inbox.listing(db, args.chat, args.before)
-        if args.action != "watch":
+        if args.action == "review":
+            db.execute("BEGIN")
+        elif args.action != "watch":
             db.execute("BEGIN IMMEDIATE")
         if args.action == "read-card":
             updated = db.execute("UPDATE board_cards SET opened=1 WHERE id=? AND revision=?", (args.card, args.revision))
@@ -442,11 +525,14 @@ def handle(args):
                              window_start=posts[0]["create_at"] if posts else now * 1000)
             if args.new:
                 state["setup_pending"] = True
+            restart_batch(state)
             state["destination"] = args.destination or state.get("destination", "chat")
-            state.update(last_checked_at=int(time.time()), kind=kind, title=args.title or title, channel=channel_name, draft=args.draft,
+            if not state.get("batch") and not state.get("unprepared"):
+                state["last_checked_at"] = int(time.time())
+            state.update(kind=kind, title=args.title or title, channel=channel_name, draft=args.draft,
                          url=url, owner=args.owner, chat=args.chat, platform=args.platform,
                          interval=args.interval, timezone=args.timezone, environment=args.environment,
-                         rule=args.rule, push=args.push, until=args.until, next=now, lease=0, token=None,
+                         rule=args.rule, push=args.push, until=args.until, next=now,
                          recheck=now if row else None)
             if kind == "channel":
                 state["channel_id"] = root
@@ -466,18 +552,25 @@ def handle(args):
                     send_pending_push(db, state)
                 except (OSError, subprocess.SubprocessError):
                     state["push_problem"] = "BB push pending; check delivery channels"
-            result = tick(state, now)
+            try:
+                result = tick(db, state, now)
+            except WatchChanged:
+                return 1 if state["platform"] == "orca" else 0
             deliver_parent_notices(state)
         elif args.action == "check":
             if state["platform"] != "bb":
                 raise ValueError("Only BB subscriptions can be checked here")
             if state["paused"] or (state["until"] and now >= state["until"]):
                 raise ValueError("Наблюдение завершено")
-            if state.get("lease", 0) > now:
+            if state.get("batch") and state.get("retry_at", 0) > now and not state.get("dispatch_problem"):
                 return {"outcome": "busy"}
-            tick(state, now, force=True)
-            if state.get("source_problem"):
-                result = {"outcome": "failed", "problem": state["source_problem"]}
+            try:
+                tick(db, state, now, force=True)
+            except WatchChanged:
+                return {"outcome": "busy"}
+            problem = state.get("dispatch_problem") or state.get("source_problem")
+            if problem:
+                result = {"outcome": "failed", "problem": problem}
             else:
                 result = {"outcome": "reviewing" if state.get("lease", 0) > now else "quiet"}
         elif args.action == "edit":
@@ -489,8 +582,9 @@ def handle(args):
                 move_watch(db, state, args.chat, args.owner, args.environment)
             if args.destination:
                 state["destination"] = args.destination
+            restart_batch(state)
             state.update(interval=args.interval, rule=args.rule, push=args.push, draft=args.draft,
-                         until=args.until, lease=0, token=None, next=now, recheck=now)
+                         until=args.until, next=now, recheck=now)
             if not args.push:
                 state["pending_push"] = False
                 state.pop("push_problem", None)
@@ -530,13 +624,14 @@ def handle(args):
             result = review(state, now)
             if state["platform"] == "bb" and not result.get("idle") and not state.get("auth"):
                 result["board_items"] = board.active_items(db, args.id)
+            return result
         elif args.action == "resolve":
             if state["paused"] or (state["until"] and state["until"] <= now):
                 raise ValueError("This watch has ended")
             if args.token != state.get("token") or state.get("reviewed") is None or state["lease"] <= now:
                 raise ValueError("Stale or unreviewed batch")
-            if args.recheck_at and args.recheck_at <= now:
-                raise ValueError("--recheck-at must be in the future")
+            if args.recheck_at and args.recheck_at <= state.get("reviewed_at", now):
+                raise ValueError("--recheck-at must be after the reviewed snapshot")
             message = Path(args.message_file).read_text().strip() if args.message_file else ""
             draft = Path(args.draft_file).read_text().strip() if args.draft_file and state.get("draft") else ""
             headline = (args.headline or (message.splitlines() or [""])[0]).strip()[:160]
@@ -601,7 +696,21 @@ def handle(args):
                     raise ValueError("This watch has ended")
                 if state["platform"] == "bb":
                     inbox.record(db, state, headline, message, draft, url, event_status, now)
-                notify(db, state, message, draft, headline, url, event_status)
+                try:
+                    notify(db, state, message, draft, headline, url, event_status)
+                except subprocess.TimeoutExpired as error:
+                    if state["platform"] != "bb" or list(error.cmd)[1:3] not in (["thread", "tell"], ["thread", "spawn"]):
+                        raise
+                    # BB may already have accepted the submission. Keep the local
+                    # summary and receipt instead of sending a second copy.
+                    state["delivery_problem"] = f"BB не подтвердил доставку «{headline}». Сводка сохранена во вкладке «Сводки»."
+                else:
+                    state.pop("delivery_problem", None)
+            if not state["auth"]:
+                state["last_processed_at"] = int(time.time())
+            state.pop("batch", None)
+            state.pop("worker_thread", None)
+            state.pop("dispatch_problem", None)
             state.update(seen=state["reviewed"], token=None, lease=0, reviewed=None,
                          auth_notified=state["auth"], pending_push=args.push or state.get("pending_push", False),
                          recheck=recheck)

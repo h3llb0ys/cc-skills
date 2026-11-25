@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { experimental_useSidebarThreads, experimental_Icon as Icon, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { contract, defaults, type Watch } from "../contract";
-import { checkTime } from "../time";
+import { WatchProgress } from "./watch-progress";
 import { WatchAction } from "./watch-action";
 import { WatchEditor } from "./watch-editor";
 import { CheckWatch } from "./check-watch";
@@ -87,10 +87,10 @@ export function SubscriptionList({ query, threadId, editId, grouped = false }: {
           <Marker status={w.status} colors={colors} /></span>
         <span className="mm-meta">{w.channel && `#${w.channel} · `}{w.interval} мин
           {!grouped && !threadId && ` · BB: ${names.get(w.chat) ?? w.chat}`}
-          {w.last_checked_at && " · Проверено " + checkTime.format(w.last_checked_at * 1000)}
+          {' · '}<WatchProgress watch={w} />
           {w.paused ? " · Завершено" : !w.schedule ? " · Без расписания" : ""}</span>
         {threadId && <span className="mm-meta">{w.destination === "shared" ? "Общий сабтред сводок" : "Этот чат"}</span>}
-        {w.source_problem && <span role="alert">{w.source_problem}</span>}
+        {(w.source_problem || w.dispatch_problem || w.delivery_problem) && <span role="alert">{w.source_problem || w.dispatch_problem || w.delivery_problem}</span>}
         {w.push_problem && <span className="mm-meta">Push ожидает доставки</span>}
       </WatchAction>
       <CheckWatch watch={w} />

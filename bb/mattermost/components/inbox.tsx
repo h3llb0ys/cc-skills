@@ -5,6 +5,7 @@ import { Marker } from "./status";
 import { useSubscriptions, useWatchRefresh } from "../hooks/use-subscriptions";
 import { checkTime } from "../time";
 import { ReplyDraft } from "./reply-draft";
+import { WatchProgress } from "./watch-progress";
 import { WatchAction } from "./watch-action";
 import { Subscriptions } from "./subscriptions";
 
@@ -53,8 +54,10 @@ function Inbox({ threadId }: { threadId: string }) {
       <span>{s.source} · {checkTime.format(s.created * 1000)}</span></div>;
   }
   return <section className="mm-ui mm-widget mm-inbox" aria-label="Сводки Mattermost">
-    <header><div><strong>Mattermost</strong> {last > 0 && <small title="Последняя успешная проверка подписок треда">
-      Проверено {checkTime.format(last * 1000)}</small>}{own.length === 1 && <small> · {own[0].interval} мин</small>}</div>
+    <header><div><strong>Mattermost</strong> {own.length === 1
+      ? <small><WatchProgress watch={own[0]} /> · {own[0].interval} мин</small>
+      : last > 0 && <small>Последнее чтение {checkTime.format(last * 1000)}
+        {own.some(w => w.processing_pending) && " · Есть подписки в обработке"}</small>}</div>
       <nav>{(page !== "widget" || detail) && <button disabled={loading} onClick={() => navigate("widget")}>Виджет</button>}
         <button aria-pressed={page === "history" && !detail} disabled={loading} onClick={() => navigate("history")}>Сводки{data?.unread ? " · " + data.unread : ""}</button>
         <button aria-pressed={page === "subscriptions" && !detail} disabled={loading} onClick={() => navigate("subscriptions")}>Подписки · {own.length}</button>

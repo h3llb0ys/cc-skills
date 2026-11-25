@@ -4,7 +4,7 @@ import { WatchEditor } from "./watch-editor";
 import { experimental_Icon as Icon, experimental_InfoSection as InfoSection, useSettings } from "@get-bb/plugin-sdk/app";
 import { Marker } from "./status";
 import { useSubscriptions } from "../hooks/use-subscriptions";
-import { checkTime } from "../time";
+import { WatchProgress } from "./watch-progress";
 
 function ThreadSubscriptions({ threadId, info }: { threadId: string; info?: boolean }) {
   const [editId, setEditId] = useState<string | null>(null);
@@ -16,7 +16,7 @@ function ThreadSubscriptions({ threadId, info }: { threadId: string; info?: bool
   const links = <div className="mm-ui mm-context" aria-label="Подписки Mattermost этого треда">
     {rows.map(w => {
       const title = w.title || w.channel || w.url.split("/").pop();
-      const issue = w.source_problem || (w.paused ? "Наблюдение завершено" : !w.schedule ? "Без расписания" : "");
+      const issue = w.source_problem || w.dispatch_problem || w.delivery_problem || (w.paused ? "Наблюдение завершено" : !w.schedule ? "Без расписания" : "");
       return <div key={w.id} className="mm-context-item">
         <div className="mm-context-title">
           <span aria-label={w.kind === "channel" ? "Канал" : "Ветка"}>{w.kind === "channel" ? "#" : "↳"}</span>
@@ -27,8 +27,7 @@ function ThreadSubscriptions({ threadId, info }: { threadId: string; info?: bool
         </div>
         <div className="mm-context-meta">
           <Marker status={w.status} colors={colors} />
-          {w.last_checked_at === undefined ? <span>Время проверки пока неизвестно</span> :
-            <time dateTime={new Date(w.last_checked_at * 1000).toISOString()}>Проверено {checkTime.format(w.last_checked_at * 1000)}</time>}
+          <WatchProgress watch={w} />
         </div>
         {issue && <small>{issue}</small>}
         {editId === w.id && !w.paused && <WatchEditor watch={w} close={() => setEditId(null)} />}

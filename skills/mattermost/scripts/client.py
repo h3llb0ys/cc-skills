@@ -300,22 +300,25 @@ class Client:
             except ApiError as error:
                 if error.status not in (403, 404):
                     raise
-        rows = []
+        return self.render_posts(team, posts, names, fetch_files=True)
+
+    def render_posts(self, team, posts, names, *, fetch_files=False):
         files = {}
+        rows = []
         for post in posts:
             metadata = post.get("metadata") or {}
             files.update((f["id"], f["name"]) for f in metadata.get("files") or [] if f.get("name"))
             attachments = []
             for key in post.get("file_ids") or []:
-                if key not in files:
+                if key not in files and fetch_files:
                     try:
                         files[key] = self.api("files/" + mmid(key) + "/info").get("name")
                     except ApiError as error:
                         if error.status not in (403, 404):
                             raise
                         files[key] = None
-                attachments.append({"id": key, "name": files[key]})
-            rows.append({"id": post["id"], "author": names.get(post["user_id"], post["user_id"]),
+                attachments.append({"id": key, "name": files.get(key)})
+            rows.append({"id": post["id"], "author": names.get(post["user_id"], post["user_id"]), "author_id": post["user_id"],
                          "root_id": post.get("root_id") or post["id"], "time": timestamp(post["create_at"]), "message": post["message"],
                          "url": f'{self.base}/{team}/pl/{post["id"]}', "replies": post.get("reply_count"),
                          "files": attachments})
