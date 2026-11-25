@@ -4,11 +4,12 @@ import { contract, defaults, type Watch } from "../contract";
 import { WatchProgress } from "./watch-progress";
 import { WatchAction } from "./watch-action";
 import { WatchEditor } from "./watch-editor";
+import { OpenSource } from "./open-source";
 import { CheckWatch } from "./check-watch";
 import { Marker } from "./status";
 import { useSubscriptions } from "../hooks/use-subscriptions";
 
-type Detail = { kind: "edit" | "open" | "remove"; id: string } | { kind: "create"; id?: never } | null;
+type Detail = { kind: "edit" | "remove"; id: string } | { kind: "create"; id?: never } | null;
 
 function RemoveWatch({ watch, cancel, removed }: { watch: Watch; cancel(): void; removed(): void }) {
   const rpc = useRpc<typeof contract>();
@@ -63,7 +64,6 @@ export function SubscriptionList({ query, threadId, editId, grouped = false }: {
   const nav = useBbNavigate();
   const { threads } = experimental_useSidebarThreads();
   const [detail, setDetail] = useState<Detail>(editId ? { kind: "edit", id: editId } : null);
-  const [error, setError] = useState("");
   const creating = detail?.kind === "create";
   const rows = (query.data?.watches ?? []).filter(w => !threadId || w.chat === threadId);
   const colors = query.data?.colors ?? defaults;
@@ -74,10 +74,6 @@ export function SubscriptionList({ query, threadId, editId, grouped = false }: {
     groups.get(w.chat)!.push(w);
   }
 
-  function openSource(w: Watch) {
-    if (nav.openUrl(w.url)) { setError(""); setDetail(null); }
-    else setError("Клиент не поддерживает эту ссылку. Откройте в браузере.");
-  }
   function row(w: Watch) {
     const title = w.title || w.url.split("/").pop();
     const selected = detail?.id === w.id ? detail.kind : null;
@@ -94,8 +90,7 @@ export function SubscriptionList({ query, threadId, editId, grouped = false }: {
         {w.push_problem && <span className="mm-meta">Push ожидает доставки</span>}
       </WatchAction>
       <CheckWatch watch={w} />
-      <button className="mm-icon" disabled={w.source_link_blocked} title="Открыть в Mattermost" aria-label={`Открыть в Mattermost: ${title}`}
-        onClick={() => { setError(""); setDetail(selected === "open" ? null : { kind: "open", id: w.id }); }}><Icon name="ExternalLink" className="mm-action-glyph" aria-hidden /></button>
+      <OpenSource watch={w} />
       <button className="mm-icon" title="Настроить подписку" aria-label={`Настройки: ${title}`}
         onClick={() => setDetail(selected === "edit" ? null : { kind: "edit", id: w.id })}><Icon name="Settings" className="mm-action-glyph" aria-hidden /></button>
       <button type="button" className="mm-icon" title="Удалить подписку" aria-label={`Удалить подписку: ${title}`}
@@ -104,13 +99,6 @@ export function SubscriptionList({ query, threadId, editId, grouped = false }: {
       {w.setup_pending && !w.paused && <FinishSetup watch={w} refresh={query.refetch} />}
       {selected === "remove" && <RemoveWatch watch={w} cancel={() => setDetail(null)}
         removed={() => { setDetail(null); void query.refetch(); }} />}
-      {selected === "open" && <div className="mm-actions"><button onClick={() => openSource(w)}>В браузере ↗</button>
-        <a href={w.url.replace(/^https:/, "mattermost:")} onClick={event => {
-          if (nav.openUrl(event.currentTarget.href)) {
-            event.preventDefault();
-            setDetail(null);
-          }
-        }}>В приложении ↗</a>{error && <span role="alert">{error}</span>}</div>}
       {selected === "edit" && w.paused && <p>Наблюдение завершено · {w.rule}</p>}
       {selected === "edit" && !w.paused && <WatchEditor watch={w} close={() => { setDetail(null); void query.refetch(); }} />}
     </div>;

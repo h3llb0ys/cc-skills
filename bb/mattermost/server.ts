@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { contract, palette, type WatchSettings } from "./contract";
 
-import { watchActions } from "./settings";
+import { sourceTargets, watchActions } from "./settings";
 
 const execute = promisify(execFile);
 function watchOptions(input: WatchSettings) {
@@ -18,8 +18,9 @@ function watchOptions(input: WatchSettings) {
 
 export default function mattermost(bb: BbPluginApi) {
   const config = bb.settings.define({
+    openTarget: { type: "select", label: "Кнопка «Открыть»", options: Object.values(sourceTargets), default: sourceTargets.web },
     subscriptionClick: { type: "select", label: "При нажатии на подписку",
-      options: Object.values(watchActions), default: watchActions.mattermost },
+      options: Object.values(watchActions), experimental_optionLabels: { [watchActions.web]: "Открыть в браузере" }, default: watchActions.thread },
     showThreadSubscriptions: { type: "boolean", label: "Показывать подписки в правой панели", default: true },
     stateDirectory: { type: "string", label: "Каталог подписок (MM_STATE_DIR)", default: "" },
   });

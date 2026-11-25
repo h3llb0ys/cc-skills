@@ -70,3 +70,14 @@
 .mm-reply textarea { width:100%; min-height:4em; padding:5px; color:inherit; background:var(--background); border:1px solid var(--border); border-radius:4px }
 
 .mm-create-bar .mm-icon { margin-left:auto }
+
+.mm-open-group { display:inline-flex; flex:none; align-items:stretch; border:1px solid var(--border); border-radius:5px; height:30px }
+.mm-ui .mm-open-group > :is(button:disabled,button.mm-open-arrow,a) { display:grid; place-items:center; width:28px; padding:0; color:inherit; border-radius:4px 0 0 4px; text-decoration:none }
+.mm-ui .mm-open-group > button.mm-open-arrow { width:24px; padding:0; border-left:1px solid var(--border); border-radius:0 4px 4px 0 }
+.mm-open-arrow .mm-action-glyph { width:12px }
+.mm-open-group a:hover,.mm-open-group [data-state=open] { background:var(--muted) }
+.mm-open-group a:focus-visible { outline:2px solid var(--ring) }
+.mm-open-menu { z-index:100; min-width:150px; padding:4px; border:1px solid var(--border); border-radius:6px; background:var(--popover); color:var(--popover-foreground); box-shadow:var(--shadow-md); font-size:13px }
+.mm-open-menu a { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:3px; color:inherit; text-decoration:none; cursor:pointer }
+.mm-open-menu [data-highlighted] { outline:none; background:var(--accent); color:var(--accent-foreground) }
+.mm-open-menu .mm-action-glyph { width:15px; height:15px; stroke-width:1.75 }

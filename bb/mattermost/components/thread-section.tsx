@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { OpenSource } from "./open-source";
 import { WatchAction } from "./watch-action";
 import { WatchEditor } from "./watch-editor";
-import { experimental_Icon as Icon, experimental_InfoSection as InfoSection, useSettings } from "@get-bb/plugin-sdk/app";
+import { experimental_InfoSection as InfoSection, useSettings } from "@get-bb/plugin-sdk/app";
 import { Marker } from "./status";
 import { useSubscriptions } from "../hooks/use-subscriptions";
 import { WatchProgress } from "./watch-progress";
@@ -21,9 +22,7 @@ function ThreadSubscriptions({ threadId, info }: { threadId: string; info?: bool
         <div className="mm-context-title">
           <span aria-label={w.kind === "channel" ? "Канал" : "Ветка"}>{w.kind === "channel" ? "#" : "↳"}</span>
           <WatchAction className="mm-context-name" watch={w} onEdit={() => setEditId(w.id)}>{title}</WatchAction>
-          {!w.source_link_blocked && <a href={w.url} target="_blank" rel="noopener noreferrer" title="Открыть в Mattermost" aria-label={`Открыть в Mattermost: ${title}`}>
-            <Icon name="ExternalLink" className="mm-action-glyph" aria-hidden />
-          </a>}
+          <OpenSource watch={w} />
         </div>
         <div className="mm-context-meta">
           <Marker status={w.status} colors={colors} />

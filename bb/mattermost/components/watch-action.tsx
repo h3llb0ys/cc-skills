@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useBbNavigate, useSdk, useSettings } from "@get-bb/plugin-sdk/app";
 import type { Watch } from "../contract";
+import { sourceLink } from "./open-source";
 import { watchActions } from "../settings";
 
 export function WatchAction({ watch, className, children, onEdit }: {
@@ -9,7 +10,7 @@ export function WatchAction({ watch, className, children, onEdit }: {
   const settings = useSettings();
   const nav = useBbNavigate();
   const sdk = useSdk();
-  const action = settings.values?.subscriptionClick;
+  const action = settings.values?.subscriptionClick ?? watchActions.thread;
   if (action === watchActions.thread) {
     return <button type="button" className={className} title={action} disabled={settings.isLoading}
       onClick={async () => {
@@ -27,11 +28,10 @@ export function WatchAction({ watch, className, children, onEdit }: {
     return <button type="button" className={className} title={watch.paused ? "Наблюдение завершено" : action}
       disabled={settings.isLoading || watch.paused} onClick={onEdit}>{children}</button>;
   }
+  const desktop = action === watchActions.app;
+  const title = desktop ? watchActions.app : "Открыть в браузере";
   if (settings.isLoading || watch.source_link_blocked) {
-    return <button type="button" className={className} disabled title={watch.source_problem || watchActions.mattermost}>{children}</button>;
+    return <button type="button" className={className} disabled title={watch.source_problem || title}>{children}</button>;
   }
-  return <a className={className} href={watch.url} target="_blank" rel="noopener noreferrer" title={watchActions.mattermost}
-    onClick={event => {
-      if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && nav.openUrl(watch.url)) event.preventDefault();
-    }}>{children}</a>;
+  return <a {...sourceLink(nav, watch.url, desktop ? "app" : "web")} className={className} title={title}>{children}</a>;
 }

@@ -20,15 +20,22 @@ it("navigates from the registry, edits conditions and leaves the palette in plug
   try {
     await slot.findByText("Ждут ответа");
     fireEvent.click(slot.getByText("Релиз"));
-    fireEvent.click(slot.getByLabelText("Открыть в Mattermost: Релиз"));
-    const desktop = slot.getByRole("link", { name: "В приложении ↗" });
+    expect(slot.inspection.navigateCalls).toContainEqual(expect.objectContaining({ method: "toThread", threadId: "thread1" }));
+    const primary = slot.getByRole("link", { name: "Открыть в браузере: Релиз" });
+    fireEvent.click(primary);
+    const arrow = slot.getByRole("button", { name: "Выбрать, где открыть: Релиз" });
+    fireEvent.keyDown(arrow, { key: "Enter" });
+    const menu = await slot.findByRole("menu");
+    const desktop = menu.querySelector('a[href^="mattermost:"]')!;
     expect(desktop.getAttribute("href")).toBe("mattermost://mm.example/team/pl/abc");
     fireEvent.click(desktop);
-    expect(JSON.stringify(slot.inspection.navigateCalls)).toContain("mattermost://mm.example/team/pl/abc");
-    expect(slot.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: w.url });
-    fireEvent.click(slot.getByLabelText("Открыть в Mattermost: Релиз"));
-    fireEvent.click(slot.getByText("В браузере ↗"));
-    expect(slot.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: w.url });
+    expect(slot.queryByRole("menu")).toBeNull();
+    fireEvent.click(primary);
+    expect(slot.inspection.navigateCalls.filter(call => call.method === "openUrl")).toEqual([
+      { method: "openUrl", url: w.url },
+      { method: "openUrl", url: "mattermost://mm.example/team/pl/abc" },
+      { method: "openUrl", url: w.url },
+    ]);
     fireEvent.click(slot.getByLabelText("Настройки: Релиз"));
     const target = slot.getByLabelText("Куда присылать") as HTMLSelectElement;
     expect(target.value).toBe("thread1");
@@ -41,6 +48,36 @@ it("navigates from the registry, edits conditions and leaves the palette in plug
     expect(slot.queryByRole("button", { name: "Цвета" })).toBeNull();
     expect(slot.queryByLabelText("#8b5cf6")).toBeNull();
   } finally { slot.lifecycle.unmount(); }
+});
+
+it("keeps the native application link when BB cannot handle it and leaves modified clicks to the browser", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  const watch = { id: "a".repeat(20), chat: "thread1", owner: "project", url: "HTTPS://mm.example/team/pl/abc",
+    title: "Релиз", interval: 5, rule: "QA", until: null, push: null, schedule: null, paused: false, timezone: "UTC" };
+  const view = renderSlot(app.navPanels[0]!, { subPath: "list" }, {
+    rpc: { list: () => ({ watches: [watch], colors: { answer: null, attention: null, resolved: null } }) },
+    settings: { subscriptionClick: "Открыть в приложении" }, openUrl: () => false,
+  });
+  const native: string[] = [];
+  const captureNavigation = (event: MouseEvent) => {
+    if (event.defaultPrevented) return;
+    const link = (event.target as Element).closest("a");
+    if (link) native.push(link.href);
+    event.preventDefault(); // jsdom has no external app or browser to hand the link to.
+  };
+  document.addEventListener("click", captureNavigation);
+  try {
+    const row = (await view.findByText("Релиз")).closest("a")!;
+    const appUrl = "mattermost://mm.example/team/pl/abc";
+    expect(row.href).toBe(appUrl);
+    fireEvent.click(row);
+    fireEvent.click(view.getByRole("link", { name: "Открыть в браузере: Релиз" }), { ctrlKey: true });
+    expect(native).toEqual([appUrl, new URL(watch.url).href]);
+    expect(view.inspection.navigateCalls).toEqual([{ method: "openUrl", url: appUrl }]);
+  } finally {
+    document.removeEventListener("click", captureNavigation);
+    view.lifecycle.unmount();
+  }
 });
 
 it("edits and resets a saved status color from plugin settings without loading watches", async () => {
@@ -170,7 +207,7 @@ it("opens the newest unread summary, then history, draft and current-thread sett
     await rendered.findByText(item.headline);
     fireEvent.click(rendered.getByText("Подписки · 1"));
     const settings = await rendered.findByRole("button", { name: "Настройки: Своя ветка" });
-    for (const [label, icon] of [["Открыть в Mattermost: Своя ветка", "ExternalLink"], ["Настройки: Своя ветка", "Settings"], ["Удалить подписку: Своя ветка", "Trash2"]]) {
+    for (const [label, icon] of [["Выбрать, где открыть: Своя ветка", "ChevronDown"], ["Настройки: Своя ветка", "Settings"], ["Удалить подписку: Своя ветка", "Trash2"]]) {
       const button = rendered.getByRole("button", { name: label });
       expect(button.querySelector(".mm-action-glyph")?.getAttribute("data-icon")).toBe(icon);
     }
@@ -244,9 +281,9 @@ it("shows this thread's subscriptions in the card and Info with a check time and
   for (const section of [app.threadContextCardSections[0]!, app.threadInfoSections[0]!]) {
     const view = renderSlot(section, props, { rpc });
     try {
-      const link = await view.findByLabelText("Открыть в Mattermost: Promo");
+      const link = await view.findByLabelText("Открыть в браузере: Promo");
       expect(link.getAttribute("href")).toBe(own.url);
-      expect(link.querySelector(".mm-action-glyph")?.getAttribute("data-icon")).toBe("ExternalLink");
+      expect(link.querySelector(".mm-action-glyph")?.getAttribute("data-icon")).toBe("Globe");
       expect(view.queryByText("Other channel")).toBeNull();
       expect(view.getByText("Ждут ответа").querySelector("i")?.style.backgroundColor).toBe("rgb(18, 52, 86)");
       expect(view.getByText(/Ожидает обработки/)).toBeTruthy();
@@ -268,6 +305,21 @@ it("shows this thread's subscriptions in the card and Info with a check time and
         else await configured.findByRole("form", { name: "Настройки подписки" });
       } finally { configured.lifecycle.unmount(); }
     }
+    const desktopDefault = renderSlot(section, props, {
+      rpc, settings: { openTarget: "В приложении", subscriptionClick: "Открыть в Mattermost" }, openUrl: () => true,
+    });
+    try {
+      const desktop = await desktopDefault.findByRole("link", { name: "Открыть в приложении: Promo" });
+      expect(desktop.querySelector(".mm-action-glyph")?.getAttribute("data-icon")).toBe("Laptop");
+      fireEvent.click(desktop);
+      expect(desktopDefault.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: own.url.replace("https:", "mattermost:") });
+      expect(desktopDefault.getByText("Promo").getAttribute("href")).toBe(own.url);
+      fireEvent.keyDown(desktopDefault.getByLabelText("Выбрать, где открыть: Promo"), { key: "Enter" });
+      fireEvent.click(await desktopDefault.findByRole("menuitem", { name: "В браузере" }));
+      expect(desktopDefault.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: own.url });
+      expect(desktopDefault.queryByRole("menu")).toBeNull();
+      expect(desktop.getAttribute("href")).toBe(own.url.replace("https:", "mattermost:"));
+    } finally { desktopDefault.lifecycle.unmount(); }
     const hidden = renderSlot(section, props, { settings: { showThreadSubscriptions: false }, rpc });
     try {
       expect(hidden.container.textContent).toBe("");
