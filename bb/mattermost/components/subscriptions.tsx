@@ -6,7 +6,8 @@ import { WatchAction } from "./watch-action";
 import { WatchEditor } from "./watch-editor";
 import { OpenSource } from "./open-source";
 import { CheckWatch } from "./check-watch";
-import { Marker } from "./status";
+import { PauseWatch } from "./pause-watch";
+import { WatchMarker } from "./status";
 import { useSubscriptions } from "../hooks/use-subscriptions";
 
 type Detail = { kind: "edit" | "remove"; id: string } | { kind: "create"; id?: never } | null;
@@ -77,22 +78,28 @@ export function SubscriptionList({ query, threadId, editId, grouped = false }: {
   function row(w: Watch) {
     const title = w.title || w.url.split("/").pop();
     const selected = detail?.id === w.id ? detail.kind : null;
-    return <div className="mm-item" key={w.id}><div className="mm-line">
+    return <div className="mm-item" data-suspended={!!w.suspended && !w.paused} key={w.id}><div className="mm-line">
       <WatchAction watch={w} className="mm-main" onEdit={() => setDetail({ kind: "edit", id: w.id })}>
         <span className="mm-title"><strong>{title}</strong><small>{w.kind === "channel" ? "Канал" : "Ветка"}</small>
-          <Marker status={w.status} colors={colors} /></span>
+          <WatchMarker watch={w} colors={colors} /></span>
         <span className="mm-meta">{w.channel && `#${w.channel} · `}{w.interval} мин
           {!grouped && !threadId && ` · BB: ${names.get(w.chat) ?? w.chat}`}
           {' · '}<WatchProgress watch={w} />
           {w.paused ? " · Завершено" : !w.schedule ? " · Без расписания" : ""}</span>
         {threadId && <span className="mm-meta">{w.destination === "shared" ? "Общий сабтред сводок" : "Этот чат"}</span>}
-        {(w.source_problem || w.dispatch_problem || w.delivery_problem) && <span role="alert">{w.source_problem || w.dispatch_problem || w.delivery_problem}</span>}
-        {w.push_problem && <span className="mm-meta">Push ожидает доставки</span>}
+        {!w.suspended && (w.source_problem || w.dispatch_problem || w.delivery_problem) && <span role="alert">{w.source_problem || w.dispatch_problem || w.delivery_problem}</span>}
+        {!w.suspended && w.push_problem && <span className="mm-meta">Push ожидает доставки</span>}
       </WatchAction>
       <CheckWatch watch={w} />
+      <PauseWatch watch={w} name={title || w.url} />
       <OpenSource watch={w} />
       <button className="mm-icon" title="Настроить подписку" aria-label={`Настройки: ${title}`}
-        onClick={() => setDetail(selected === "edit" ? null : { kind: "edit", id: w.id })}><Icon name="Settings" className="mm-action-glyph" aria-hidden /></button>
+        onClick={() => setDetail(selected === "edit" ? null : { kind: "edit", id: w.id })}>
+        <svg viewBox="0 0 24 24" className="mm-action-glyph" fill="none" stroke="currentColor" strokeLinecap="round" aria-hidden="true">
+          <path d="M3 7h18M3 17h18" />
+          <circle cx="9" cy="7" r="2.5" /><circle cx="15" cy="17" r="2.5" />
+        </svg>
+      </button>
       <button type="button" className="mm-icon" title="Удалить подписку" aria-label={`Удалить подписку: ${title}`}
         onClick={() => setDetail({ kind: "remove", id: w.id })}><Icon name="Trash2" className="mm-action-glyph" aria-hidden /></button>
     </div>

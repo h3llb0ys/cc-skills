@@ -147,15 +147,16 @@ def discard(db, watch, post=None):
 
 
 def listing(db, status, offset):
-    count = db.execute("SELECT COUNT(*) FROM board_cards WHERE status=?", (status,)).fetchone()[0]
-    rows = db.execute("""SELECT b.id,b.revision,b.headline,b.body,
+    sources = """FROM board_cards b JOIN watches w ON w.id=(
+        SELECT MIN(s.watch) FROM board_sources s JOIN watches d ON d.id=s.watch
+        WHERE s.card=b.id AND COALESCE(json_extract(d.data,'$.suspended'),0)=0) WHERE b.status=?"""
+    count = db.execute(f"SELECT COUNT(*) {sources}", (status,)).fetchone()[0]
+    rows = db.execute(f"""SELECT b.id,b.revision,b.headline,b.body,
             CASE WHEN EXISTS(SELECT 1 FROM board_sources s JOIN watches d ON d.id=s.watch
-                 WHERE s.card=b.id AND json_extract(d.data,'$.draft')=1) THEN b.draft ELSE '' END,
+                 WHERE s.card=b.id AND COALESCE(json_extract(d.data,'$.suspended'),0)=0 AND json_extract(d.data,'$.draft')=1) THEN b.draft ELSE '' END,
             b.author,b.updated,b.opened,b.url,
             json_extract(w.data,'$.channel'),json_extract(w.data,'$.title'),json_extract(w.data,'$.chat')
-            FROM board_cards b JOIN watches w ON w.id=(
-                SELECT MIN(watch) FROM board_sources WHERE card=b.id)
-            WHERE b.status=? ORDER BY b.updated DESC,b.id DESC LIMIT ? OFFSET ?""", (status, PAGE, offset))
+            {sources} ORDER BY b.updated DESC,b.id DESC LIMIT ? OFFSET ?""", (status, PAGE, offset))
     return dict(total=count, rows=[dict(id=key, revision=revision, headline=head, body=body, draft=draft, author=author,
                 updated=updated, opened=bool(opened), url=url,
                 source=("#" + channel if channel else title or "Mattermost"), chat=chat)

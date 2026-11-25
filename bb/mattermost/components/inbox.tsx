@@ -31,7 +31,9 @@ function Inbox({ threadId }: { threadId: string }) {
   const [edits, setEdits] = useState<Record<number, string>>({});
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const own = (watches.data?.watches ?? []).filter(w => w.chat === threadId);
+  const all = watches.data?.watches ?? [];
+  const own = all.filter(w => w.chat === threadId);
+  const suspended = own.filter(w => w.suspended && !w.paused);
   const data = feed.data;
   if (!own.length && !data?.rows.length && !before && !watches.error && !feed.error) return null;
   const colors = watches.data?.colors ?? defaults;
@@ -51,12 +53,13 @@ function Inbox({ threadId }: { threadId: string }) {
   const latest = data?.latest;
   function meta(s: Summary) {
     return <div className="mm-event-meta"><Marker status={s.status} colors={colors} />
-      <span>{s.source} · {checkTime.format(s.created * 1000)}</span></div>;
+      <span>{s.source} · {checkTime.format(s.created * 1000)}{all.some(w => w.id === s.watch_id && w.suspended && !w.paused) && " · Источник на паузе"}</span></div>;
   }
   return <section className="mm-ui mm-widget mm-inbox" aria-label="Сводки Mattermost">
     <header><div><strong>Mattermost</strong> {own.length === 1
-      ? <small><WatchProgress watch={own[0]} /> · {own[0].interval} мин</small>
+      ? <small><WatchProgress watch={own[0]} /> · {own[0].paused ? "Завершено" : suspended.length ? "На паузе" : own[0].interval + " мин"}</small>
       : last > 0 && <small>Последнее чтение {checkTime.format(last * 1000)}
+        {suspended.length > 0 && " · На паузе: " + suspended.length}
         {own.some(w => w.processing_pending) && " · Есть подписки в обработке"}</small>}</div>
       <nav>{(page !== "widget" || detail) && <button disabled={loading} onClick={() => navigate("widget")}>Виджет</button>}
         <button aria-pressed={page === "history" && !detail} disabled={loading} onClick={() => navigate("history")}>Сводки{data?.unread ? " · " + data.unread : ""}</button>
@@ -82,7 +85,7 @@ function Inbox({ threadId }: { threadId: string }) {
     </> : latest ? <article className="mm-event">{meta(latest)}<strong>{latest.headline}</strong><div className="mm-actions">
       <button className="mm-primary" disabled={loading} onClick={() => void open(latest.id)}>Открыть сводку →</button>
       <a href={latest.url} target="_blank" rel="noopener noreferrer">В Mattermost ↗</a>
-    </div></article> : data && <small>{data.rows.length ? "Все сводки просмотрены" : "Ждём первую сводку"}
+    </div></article> : data && <small>{data.rows.length ? "Все сводки просмотрены" : suspended.length && suspended.length === own.length ? "Наблюдение на паузе" : "Ждём первую сводку"}
       {!data.rows.length && own.length === 1 &&
         <> · <WatchAction watch={own[0]} onEdit={() => { navigate("subscriptions"); setEditId(own[0].id); }}>
           {own[0].title || own[0].channel || own[0].url}</WatchAction></>}</small>}

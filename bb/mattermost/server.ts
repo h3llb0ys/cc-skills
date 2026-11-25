@@ -89,6 +89,11 @@ export default function mattermost(bb: BbPluginApi) {
       bb.realtime.publish("changed", {});
       return null;
     },
+    setPaused: async ({ id, suspended }) => {
+      try { await cli([suspended ? "pause" : "resume", id, "--platform", "bb"]); }
+      finally { bb.realtime.publish("changed", {}); }
+      return null;
+    },
     check: async ({ id }) => {
       const result = await cli(["check", id]);
       bb.realtime.publish("changed", {});

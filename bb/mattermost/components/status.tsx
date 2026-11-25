@@ -9,6 +9,12 @@ export function Marker({ status, colors }: { status: Watch["status"]; colors: Co
   </span>;
 }
 
+export function WatchMarker({ watch, colors }: { watch: Pick<Watch, "suspended" | "status" | "paused">; colors: Colors }) {
+  if (watch.paused) return null;
+  if (watch.suspended) return <span className="mm-marker mm-paused-marker"><i />На паузе</span>;
+  return <Marker status={watch.status} colors={colors} />;
+}
+
 export function MessageStatus({ attributes }: { attributes: Readonly<Record<string, string>> }) {
   const query = useColors();
   const status = attributes.status;

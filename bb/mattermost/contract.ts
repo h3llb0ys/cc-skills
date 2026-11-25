@@ -28,7 +28,7 @@ export const watch = settings.extend({
   processing_pending: z.boolean().optional(),
   last_processed_at: z.number().int().nonnegative().optional(),
   last_checked_at: z.number().int().nonnegative().optional(),
-  schedule: z.string().nullable(), setup_pending: z.boolean().optional(), paused: z.boolean(), timezone: z.string(),
+  schedule: z.string().nullable(), setup_pending: z.boolean().optional(), suspended: z.boolean().optional(), paused: z.boolean(), timezone: z.string(),
   push_problem: z.string().optional(), source_problem: z.string().optional(), source_link_blocked: z.boolean().optional(),
 });
 export type Watch = z.infer<typeof watch>;
@@ -36,7 +36,7 @@ export const palette = z.object({ answer: color.nullable(), attention: color.nul
 const credentials = z.object({ url: z.string().max(4096), cookie: z.string().max(65536) });
 const connectionState = z.object({ url: z.string(), hasCookie: z.boolean(), needsRepair: z.boolean().optional() });
 const summary = z.object({
-  id: z.number().int().positive(), headline: z.string(), source: z.string(), url,
+  id: z.number().int().positive(), headline: z.string(), source: z.string(), watch_id: id.nullish(), url,
   status: z.union([signal, z.literal("normal")]), created: z.number().int(), opened: z.number().int(),
 });
 const thread = z.string().min(1);
@@ -51,6 +51,7 @@ export const contract = defineRpcContract({
   setHeaderMode: { input: z.enum(headerModes), output: z.null() },
   board: { input: z.record(signal, z.number().int().nonnegative()), output: z.record(signal, section) },
   readCard: { input: z.object({ id: cursor, revision: cursor }), output: z.null() },
+  setPaused: { input: z.object({ id, suspended: z.boolean() }), output: z.null() },
   check: { input: z.object({ id }), output: z.object({
     outcome: z.enum(["busy", "reviewing", "quiet", "failed"]), problem: z.string().optional() }) },
   inbox: { input: z.object({ chat: thread, before: cursor.optional() }), output: z.object({

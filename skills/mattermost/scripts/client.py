@@ -82,6 +82,7 @@ def site_url(value):
 class Client:
     def __init__(self, credentials=None, *, timeout=30):
         self.timeout = timeout
+        self.before_request = None
         if credentials is None:
             override = os.environ.get("MM_URL")
             cookie = os.environ.get("MM_COOKIE") if override else None
@@ -155,6 +156,8 @@ class Client:
             # Leave time for the system client if macOS routes Python differently.
             timeout = min(5, self.timeout / 2) if sys.platform == "darwin" else self.timeout
             try:
+                if self.before_request:
+                    self.before_request()
                 with self.opener.open(request, timeout=timeout) as response:
                     if output is None:
                         return json.load(response)
@@ -170,6 +173,8 @@ class Client:
                 if sys.platform != "darwin":
                     raise TimeoutError(f"Mattermost не ответил за {self.timeout} с. Проверьте соединение и попробуйте ещё раз.") from None
                 self.use_system_curl = True
+        if self.before_request:
+            self.before_request()
         return self._curl(request, path, deadline, output)
 
     def api(self, path, **kwargs):

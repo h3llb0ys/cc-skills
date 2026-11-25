@@ -7,19 +7,21 @@ def initialize(db):
         id INTEGER PRIMARY KEY, chat TEXT NOT NULL, source TEXT NOT NULL,
         headline TEXT NOT NULL, body TEXT NOT NULL, draft TEXT NOT NULL, url TEXT NOT NULL,
         status TEXT NOT NULL, created INTEGER NOT NULL, opened INTEGER NOT NULL DEFAULT 0)""")
+    db.execute("CREATE TABLE IF NOT EXISTS summary_sources (summary INTEGER PRIMARY KEY, watch TEXT NOT NULL)")
     db.execute("CREATE INDEX IF NOT EXISTS summaries_chat ON summaries(chat, id)")
     db.execute("CREATE INDEX IF NOT EXISTS summaries_unread ON summaries(chat, opened, id)")
     db.execute("CREATE TABLE IF NOT EXISTS summary_threads (chat TEXT PRIMARY KEY, child TEXT NOT NULL)")
 
 
 def record(db, state, headline, message, draft, url, status, now):
-    db.execute("""INSERT INTO summaries(chat, source, headline, body, draft, url, status, created)
+    entry = db.execute("""INSERT INTO summaries(chat, source, headline, body, draft, url, status, created)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (state["chat"], state.get("title") or state["url"], headline, message, draft, url, status, now))
+    db.execute("INSERT INTO summary_sources VALUES (?, ?)", (entry.lastrowid, state["id"]))
 
 
 def listing(db, chat, before=None):
-    fields = "id, source, headline, url, status, created, opened"
+    fields = "id, source, headline, url, status, created, opened, (SELECT watch FROM summary_sources WHERE summary=id) AS watch_id"
     def fetch(where, params, limit):
         cursor = db.execute(f"SELECT {fields} FROM summaries WHERE chat=? {where} ORDER BY id DESC LIMIT ?",
                             (chat, *params, limit))
@@ -34,7 +36,7 @@ def listing(db, chat, before=None):
 
 
 def open_summary(db, chat, key):
-    cursor = db.execute("SELECT * FROM summaries WHERE chat=? AND id=?", (chat, key))
+    cursor = db.execute("SELECT *, (SELECT watch FROM summary_sources WHERE summary=id) AS watch_id FROM summaries WHERE chat=? AND id=?", (chat, key))
     row = cursor.fetchone()
     if not row:
         raise ValueError("Сводка не найдена в этом треде")

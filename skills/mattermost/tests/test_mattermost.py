@@ -628,6 +628,104 @@ class WatchTests(unittest.TestCase):
         self.invoke("tick", self.key)
         self.assertEqual(self.invoke("review", self.key)["changed"], [REPLY])
 
+    def test_manual_pause_invalidates_worker_and_resumes_from_last_processed_cursor(self):
+        schedule = dict(name="mm-watch-" + self.key, id="schedule", enabled=True)
+
+        def native(args, stdin=None):
+            if "pause" in args:
+                schedule["enabled"] = False
+            if "resume" in args:
+                schedule["enabled"] = True
+            return subprocess.CompletedProcess(args, 0, json.dumps([schedule]) if "list" in args else "{}")
+
+        self.calls.side_effect = native
+        self.invoke("enable", self.key)
+        self.rows.append(post(REPLY, 2, ROOT))
+        self.invoke("tick", self.key)
+        old = self.invoke("review", self.key)["token"]
+        schedule["name"] = "Переименована в BB"
+        self.invoke("pause", self.key)
+        self.assertFalse(schedule["enabled"])
+        self.client.reset_mock()
+        self.calls.reset_mock()
+        self.rows.append(post(OTHER, 3, ROOT))
+        self.invoke("tick", self.key)
+        self.assertEqual(self.invoke("review", self.key), {"idle": True})
+        with self.assertRaisesRegex(ValueError, "на паузе"):
+            self.invoke("resolve", self.key, old)
+        with self.assertRaisesRegex(ValueError, "на паузе"):
+            self.invoke("check", self.key)
+        self.assertFalse(self.client.mock_calls)
+        self.calls.assert_not_called()
+        self.assertTrue(self.invoke("watch", "list")[0]["suspended"])
+        self.invoke("resume", self.key)
+        self.assertTrue(schedule["enabled"])
+        self.assertEqual(self.calls.call_args.args[0], ["bb", "automation", "run", "schedule", "--project", "project"])
+        self.assertFalse(self.client.mock_calls)
+        self.invoke("tick", self.key)  # The immediate native run invokes the regular entry point.
+        review = self.invoke("review", self.key)
+        self.assertEqual(set(review["changed"]), {REPLY, OTHER})
+        self.assertNotEqual(review["token"], old)
+        with self.assertRaisesRegex(ValueError, "Stale"):
+            self.invoke("resolve", self.key, old)
+        self.invoke("resume", self.key)
+        self.assertEqual(self.invoke("review", self.key)["token"], review["token"])
+
+    def test_pause_cli_returns_json_and_enforces_deadline_after_manual_pause(self):
+        self.calls.return_value.stdout = json.dumps([dict(name="mm-watch-" + self.key, id="job")])
+        self.invoke("enable", self.key)
+        with patch.object(sys, "argv", ["mm", "pause", self.key, "--platform", "bb"]), patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self.assertEqual(mm.main(), 0)
+            self.assertIsNone(json.loads(stdout.getvalue()))
+        with closing(watches.connect()) as db, db:
+            state = json.loads(db.execute("SELECT data FROM watches WHERE id=?", (self.key,)).fetchone()[0])
+            state.update(until=self.now+1, pending_push=True, parent_notices=["old"])
+            watches.save(db, self.key, state)
+        self.calls.reset_mock()
+        self.invoke("tick", self.key)
+        self.calls.assert_not_called()
+        self.now += 2
+        with self.assertRaisesRegex(ValueError, "завершено"):
+            self.invoke("resume", self.key)
+        self.assertTrue(self.invoke("watch", "list")[0]["paused"])
+        with self.assertRaisesRegex(ValueError, "завершено"):
+            self.invoke("edit", self.key, "--rule", "QA", "--interval", "5")
+        with self.assertRaisesRegex(ValueError, "завершено"):
+            self.invoke(*self.options)
+        self.calls.assert_not_called()
+
+    def test_pause_after_account_read_cancels_next_source_request(self):
+        self.calls.return_value.stdout = json.dumps([dict(name="mm-watch-" + self.key, id="job")])
+        self.invoke("enable", self.key)
+        real = client.Client(("https://mm.example", "MMAUTHTOKEN=test"))
+        real.use_system_curl = False
+        with patch.object(watches, "Client", return_value=real), patch.object(real.opener, "open") as request:
+            def after_account(*args, **kwargs):
+                self.invoke("pause", self.key)
+                return io.BytesIO(b'{"id":"owner","username":"qa"}')
+            request.side_effect = after_account
+            self.invoke("tick", self.key)
+            self.assertEqual(request.call_count, 1)
+        self.assertTrue(self.invoke("watch", "list")[0]["suspended"])
+
+    def test_paused_sources_hide_actionable_cards_and_preserve_history(self):
+        self.calls.return_value.stdout = json.dumps([dict(name="mm-watch-" + self.key, id="schedule")])
+        self.invoke("enable", self.key)
+        self.rows.append(post(REPLY, 2, ROOT))
+        self.invoke("tick", self.key)
+        review = self.invoke("review", self.key)
+        message = Path(self.folder.name) / "message"
+        message.write_text("Нужен ответ")
+        self.invoke("resolve", self.key, review["token"], "--message-file", str(message),
+                    "--status", "answer", "--post-id", REPLY, "--awaiting", REPLY)
+        self.assertEqual(self.invoke("board")["answer"]["total"], 1)
+        self.invoke("pause", self.key)
+        self.assertEqual(self.invoke("board")["answer"], {"rows": [], "total": 0})
+        latest = self.invoke("inbox", "--chat", "target")["latest"]
+        self.assertEqual(latest["watch_id"], self.key)
+        self.invoke("resume", self.key)
+        self.assertEqual(self.invoke("board")["answer"]["total"], 1)
+
     def test_scheduler_reconciliation_and_unwatch(self):
         name = "mm-watch-" + self.key
         schedules = []
@@ -904,6 +1002,14 @@ class WatchTests(unittest.TestCase):
                 self.invoke("read-card", str(row["id"]), str(row["revision"]))
             else:
                 self.assertTrue(row["opened"])
+
+        # A shared post stays actionable while the other source is active, but
+        # a paused source cannot authorize showing its draft in that thread.
+        self.calls.return_value.stdout = json.dumps([dict(name="mm-watch-" + self.key, id="job")])
+        self.invoke("enable", self.key)
+        self.invoke("pause", self.key)
+        shared = self.invoke("board")["answer"]["rows"][0]
+        self.assertEqual((shared["chat"], shared["draft"], shared["opened"]), ("other-chat", "", True))
 
     def test_legacy_thread_closes_without_chat_notification(self):
         with closing(watches.connect()) as db, db:

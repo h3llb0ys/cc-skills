@@ -208,10 +208,11 @@ it("opens the newest unread summary, then history, draft and current-thread sett
     await rendered.findByText(item.headline);
     fireEvent.click(rendered.getByText("Подписки · 1"));
     const settings = await rendered.findByRole("button", { name: "Настройки: Своя ветка" });
-    for (const [label, icon] of [["Выбрать, где открыть: Своя ветка", "ChevronDown"], ["Настройки: Своя ветка", "Settings"], ["Удалить подписку: Своя ветка", "Trash2"]]) {
+    for (const [label, icon] of [["Выбрать, где открыть: Своя ветка", "ChevronDown"], ["Удалить подписку: Своя ветка", "Trash2"]]) {
       const button = rendered.getByRole("button", { name: label });
       expect(button.querySelector(".mm-action-glyph")?.getAttribute("data-icon")).toBe(icon);
     }
+    expect(settings.querySelectorAll("svg.mm-action-glyph circle")).toHaveLength(2);
     fireEvent.click(settings);
     expect(rendered.queryByText("Чужая ветка")).toBeNull();
     expect((rendered.getByLabelText("Куда присылать") as HTMLSelectElement).value).toBe(w.chat);
@@ -537,4 +538,30 @@ it("shares one list poll in split panes and forgets a filter when its badge disa
     timer.mockRestore();
     clearTimer.mockRestore();
   }
+});
+
+it("pauses and resumes the selected subscription through icon-only actions", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  const watch = { id: "a".repeat(20), chat: "t", owner: "p", title: "Дежурство", url: "https://mm.example/t/pl/a",
+    interval: 5, rule: "QA", paused: false, suspended: false, push: null, until: null, schedule: "job", timezone: "UTC", status: "answer" };
+  const change = vi.fn((input: unknown) => {
+    const request = contract.setPaused.input.parse(input);
+    watch.suspended = request.suspended;
+    return null;
+  });
+  const view = renderSlot(app.navPanels[0]!, { subPath: "list" }, { rpc: {
+    list: () => ({ watches: [{ ...watch }], colors: { answer: null, attention: null, resolved: null } }), setPaused: change,
+  } });
+  try {
+    const pause = await view.findByRole("button", { name: "Приостановить подписку: Дежурство" });
+    expect(pause.textContent).toBe("");
+    fireEvent.click(pause);
+    await waitFor(() => expect(change).toHaveBeenCalledWith({ id: watch.id, suspended: true }));
+    await view.behavior.emitRealtime("changed", {});
+    await view.findByText("На паузе");
+    expect(view.queryByText("Ждут ответа")).toBeNull();
+    expect((view.getByLabelText("Проверить сейчас: Дежурство") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(view.getByRole("button", { name: "Возобновить подписку: Дежурство" }));
+    await waitFor(() => expect(change).toHaveBeenCalledWith({ id: watch.id, suspended: false }));
+  } finally { view.lifecycle.unmount(); }
 });

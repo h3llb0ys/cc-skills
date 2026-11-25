@@ -3,7 +3,8 @@ import { OpenSource } from "./open-source";
 import { WatchAction } from "./watch-action";
 import { WatchEditor } from "./watch-editor";
 import { experimental_InfoSection as InfoSection, useSettings } from "@get-bb/plugin-sdk/app";
-import { Marker } from "./status";
+import { PauseWatch } from "./pause-watch";
+import { WatchMarker } from "./status";
 import { useSubscriptions } from "../hooks/use-subscriptions";
 import { WatchProgress } from "./watch-progress";
 
@@ -18,17 +19,18 @@ function ThreadSubscriptions({ threadId, info }: { threadId: string; info?: bool
     {rows.map(w => {
       const title = w.title || w.channel || w.url.split("/").pop();
       const issue = w.source_problem || w.dispatch_problem || w.delivery_problem || (w.paused ? "Наблюдение завершено" : !w.schedule ? "Без расписания" : "");
-      return <div key={w.id} className="mm-context-item">
+      return <div key={w.id} className="mm-context-item" data-suspended={!!w.suspended && !w.paused}>
         <div className="mm-context-title">
           <span aria-label={w.kind === "channel" ? "Канал" : "Ветка"}>{w.kind === "channel" ? "#" : "↳"}</span>
           <WatchAction className="mm-context-name" watch={w} onEdit={() => setEditId(w.id)}>{title}</WatchAction>
+          <PauseWatch watch={w} name={title || w.url} />
           <OpenSource watch={w} />
         </div>
         <div className="mm-context-meta">
-          <Marker status={w.status} colors={colors} />
+          <WatchMarker watch={w} colors={colors} />
           <WatchProgress watch={w} />
         </div>
-        {issue && <small>{issue}</small>}
+        {issue && (!w.suspended || w.paused) && <small>{issue}</small>}
         {editId === w.id && !w.paused && <WatchEditor watch={w} close={() => setEditId(null)} />}
       </div>;
     })}

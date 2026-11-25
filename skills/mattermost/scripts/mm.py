@@ -96,13 +96,13 @@ def parser():
             p.add_argument("--before", type=positive)
         else:
             p.add_argument("summary", type=positive)
-    for name in ("unwatch", "enable", "finish-setup", "check", "tick", "review", "resolve", "edit"):
+    for name in ("unwatch", "enable", "pause", "resume", "finish-setup", "check", "tick", "review", "resolve", "edit"):
         p = commands.add_parser(name)
         p.add_argument("id", help="local watch ID")
         if name in ("finish-setup", "edit"):
             for flag in ("--chat", "--owner", "--environment"):
                 p.add_argument(flag, required=name == "finish-setup")
-        if name == "unwatch":
+        if name in ("unwatch", "pause", "resume"):
             p.add_argument("--platform", choices=["bb", "orca"])
         if name == "edit":
             p.add_argument("--destination", choices=["chat", "shared"])
@@ -132,7 +132,7 @@ def main():
     args = parser().parse_args()
     if args.action == "connection":
         result = connection(args.operation, None if args.operation == "status" else json.load(sys.stdin))
-    elif args.action in ("watch", "unwatch", "enable", "finish-setup", "check", "tick", "review", "resolve", "edit", "inbox", "open-summary", "board", "read-card"):
+    elif args.action in ("watch", "unwatch", "enable", "pause", "resume", "finish-setup", "check", "tick", "review", "resolve", "edit", "inbox", "open-summary", "board", "read-card"):
         result = watches.handle(args)
         if args.action == "tick":
             return result
@@ -154,7 +154,7 @@ def main():
             else:
                 team, posts = client.around(args.url, args.before, args.after)
             result = {"posts": client.render(team, posts), "truncated": truncated}
-    if result is not None:
+    if result is not None or args.action in ("pause", "resume"):
         print(json.dumps(result, ensure_ascii=False))
     return 0
 

@@ -46,11 +46,15 @@ def source_link_blocked(state):
     return state.get("source_link_blocked", bool(state.get("source_problem") and state.get("kind") == "channel"))
 
 
+def ended(state, now):
+    return state["paused"] or (state.get("until") is not None and now >= state["until"])
+
+
 def public(state):
     data = {k: v for k, v in state.items()
             if k in ("id", "url", "platform", "chat", "owner", "interval", "rule", "push",
-                     "until", "schedule", "setup_pending", "paused", "timezone", "push_problem", "source_problem", "dispatch_problem", "delivery_problem", "last_checked_at", "last_processed_at", "destination", "kind", "channel", "title", "draft", "status")}
-    data["processing_pending"] = not state["paused"] and bool(state.get("batch") or state.get("unprepared"))
+                     "until", "schedule", "setup_pending", "paused", "suspended", "timezone", "push_problem", "source_problem", "dispatch_problem", "delivery_problem", "last_checked_at", "last_processed_at", "destination", "kind", "channel", "title", "draft", "status")}
+    data["processing_pending"] = not state["paused"] and not state.get("suspended") and bool(state.get("batch") or state.get("unprepared"))
     if state.get("source_problem"):
         data["source_link_blocked"] = source_link_blocked(state)
     return data
@@ -125,11 +129,15 @@ def schedules(state):
 
 
 def matching_schedules(state):
-    return [row for row in schedules(state) if row["name"] == "mm-watch-" + state["id"]]
+    jobs = schedules(state)
+    saved = [row for row in jobs if row["id"] == state.get("schedule")]
+    return saved or [row for row in jobs if row["name"] == "mm-watch-" + state["id"]]
 
 
 def enable(state):
-    if state["paused"] or (state.get("until") and time.time() >= state["until"]):
+    if state.get("suspended"):
+        raise ValueError("Подписка на паузе")
+    if ended(state, time.time()):
         raise ValueError("This watch has ended")
     bb = state["platform"] == "bb"
 
@@ -254,12 +262,22 @@ def outside_write_lock(db, state):
     data = json.dumps(state)
     db.execute("UPDATE watches SET data=? WHERE id=?", (data, state["id"]))
     db.commit()
-    try:
-        yield
-    finally:
-        db.execute("BEGIN IMMEDIATE")
+    version = None
+
+    def verify():
+        nonlocal version
+        current = db.execute("PRAGMA data_version").fetchone()[0]
+        if current == version:
+            return
+        version = current
         if not db.execute("SELECT 1 FROM watches WHERE id=? AND data=?", (state["id"], data)).fetchone():
             raise WatchChanged()
+
+    try:
+        yield verify
+    finally:
+        db.execute("BEGIN IMMEDIATE")
+        verify()
 
 
 def prepare_batch(db, state, reminder_due):
@@ -269,8 +287,9 @@ def prepare_batch(db, state, reminder_due):
         # Early builds stored raw posts with no account identity. Read those again
         # under the current session before associating them with its owner.
         state.pop("unprepared", None)
-        with outside_write_lock(db, state):
+        with outside_write_lock(db, state) as verify:
             client = Client()
+            client.before_request = verify
             me = client.api("users/me")
             team, posts = read_source(client, state)
         state["last_checked_at"] = int(time.time())
@@ -285,7 +304,8 @@ def prepare_batch(db, state, reminder_due):
         state.update(unprepared=snapshot, reviewed=current, token=None, lease=0)
         if state.get("kind") == "channel":
             state["recent_seen"] = {p["id"]: current[p["id"]] for p in posts if p["create_at"] >= state["recent_start"]}
-        with outside_write_lock(db, state):
+        with outside_write_lock(db, state) as verify:
+            client.before_request = verify
             try:
                 snapshot["posts"] = client.render(team, posts)
             except (ApiError, AuthError, OSError):
@@ -310,7 +330,7 @@ def worker_running(worker):
 def tick(db, state, now, force=False):
     orca = state["platform"] == "orca"
     idle = 1 if orca else 0  # Orca precheck continues on zero only.
-    if state["paused"]:
+    if state["paused"] or state.get("suspended"):
         clear_batch(state)
         return idle
     if state["until"] and now >= state["until"]:
@@ -376,7 +396,7 @@ def tick(db, state, now, force=False):
 
 
 def review(state, now):
-    if not state.get("token") or state["paused"] or (state["until"] and state["until"] <= now) or state["lease"] <= now:
+    if not state.get("token") or state.get("suspended") or ended(state, now) or state["lease"] <= now:
         return {"idle": True}
     batch = state.get("batch")
     if not batch:
@@ -420,7 +440,7 @@ def notify(db, state, message, draft, headline, url, status_key):
 
 
 def deliver_parent_notices(state):
-    if state["paused"] or (state["until"] and time.time() >= state["until"]):
+    if state.get("suspended") or ended(state, time.time()):
         state.pop("parent_notices", None)
     if state.get("parent_notices"):
         try:
@@ -439,7 +459,7 @@ def pause(state):
 
 
 def send_pending_push(db, state):
-    if not state["paused"] and state["push"] and (not state["until"] or time.time() < state["until"]):
+    if not state.get("suspended") and state["push"] and not ended(state, time.time()):
         run(["bb", "push-notifications", "send", "--title", "Mattermost", "--thread", state["chat"],
              "--body", "В наблюдаемой ветке есть важное обновление"])
     state["pending_push"] = False
@@ -457,7 +477,7 @@ def handle(args):
             now = time.time()
             for data, child in rows:
                 watch = public(json.loads(data))
-                if watch.get("until") is not None and watch["until"] <= now:
+                if ended(watch, now):
                     watch.update(paused=True, processing_pending=False)
                 if child:
                     watch["summary_thread"] = child
@@ -510,16 +530,16 @@ def handle(args):
             row = bound_watch(db, binding)
             if row:
                 state = json.loads(row[0])
+                if ended(state, time.time()):
+                    raise ValueError("Наблюдение завершено")
                 if args.new:
-                    if state["schedule"] or not state.get("setup_pending") or state["paused"]:
+                    if state["schedule"] or not state.get("setup_pending"):
                         raise ValueError("Этот источник уже подключён к выбранному треду BB")
                     expected = dict(rule=args.rule, interval=args.interval, destination=args.destination or "chat",
                                     draft=args.draft, push=args.push, until=args.until, timezone=args.timezone)
                     if any(state.get(k) != v for k, v in expected.items()):
                         raise ValueError("Подписка уже создана с другими условиями. Проверь её в списке подписок.")
                     return public(state)
-                if state["paused"]:
-                    raise ValueError("Remove the stopped subscription with unwatch before restarting")
             else:
                 # A moved watch may still own the original ID used by its scheduler.
                 occupied = db.execute("SELECT 1 FROM watches WHERE id=?", (binding,)).fetchone()
@@ -548,6 +568,8 @@ def handle(args):
         if not row:
             raise ValueError("Unknown watch ID")
         state = json.loads(row[0])
+        if getattr(args, "platform", None) and state["platform"] != args.platform:
+            raise ValueError("Подписка принадлежит другой платформе")
         result = None
         if args.action == "tick":
             if state.get("pending_push"):
@@ -560,10 +582,46 @@ def handle(args):
             except WatchChanged:
                 return 1 if state["platform"] == "orca" else 0
             deliver_parent_notices(state)
+        elif args.action in ("pause", "resume"):
+            if ended(state, now):
+                raise ValueError("Наблюдение завершено")
+            if not state["schedule"]:
+                raise ValueError("У подписки нет расписания")
+            if args.action == "pause":
+                # Persist the guard before touching the scheduler. A timeout must
+                # never leave a previously issued worker receipt usable.
+                clear_batch(state)
+                state.update(suspended=True, token=None, lease=0, pending_push=False)
+                state.pop("parent_notices", None)
+                state.pop("push_problem", None)
+                save(db, args.id, state)
+                db.commit()
+                db.execute("BEGIN IMMEDIATE")
+                latest = db.execute("SELECT data FROM watches WHERE id=?", (args.id,)).fetchone()
+                current = json.loads(latest[0]) if latest else None
+                if current and current.get("suspended"):
+                    pause(current)
+                return None
+            if not state.get("suspended"):
+                return None
+            state.update(suspended=False, next=now)
+            enable(state)
+            save(db, args.id, state)
+            db.commit()
+            if state["platform"] == "bb":
+                # The normal scheduler runs the due tick in the background.
+                # A racing heartbeat or pause sees the same committed state.
+                try:
+                    run(["bb", "automation", "run", state["schedule"], "--project", schedule_owner(state)])
+                except (OSError, subprocess.SubprocessError) as error:
+                    raise ValueError("Подписка включена. Немедленный запуск не подтверждён, проверка пройдёт по расписанию.") from error
+            return None
         elif args.action == "check":
+            if state.get("suspended"):
+                raise ValueError("Подписка на паузе")
             if state["platform"] != "bb":
                 raise ValueError("Only BB subscriptions can be checked here")
-            if state["paused"] or (state["until"] and now >= state["until"]):
+            if ended(state, now):
                 raise ValueError("Наблюдение завершено")
             if state.get("batch") and state.get("retry_at", 0) > now and not state.get("dispatch_problem"):
                 return {"outcome": "busy"}
@@ -577,7 +635,9 @@ def handle(args):
             else:
                 result = {"outcome": "reviewing" if state.get("lease", 0) > now else "quiet"}
         elif args.action == "edit":
-            if state["platform"] != "bb" or state["paused"]:
+            if ended(state, now):
+                raise ValueError("Наблюдение завершено")
+            if state["platform"] != "bb":
                 raise ValueError("Only active BB subscriptions can be edited here")
             if not args.rule.strip() or (args.until is not None and args.until <= now):
                 raise ValueError("Check rule and end time")
@@ -597,14 +657,12 @@ def handle(args):
                 if (state["platform"], state["owner"], state["chat"]) != ("bb", args.owner, args.chat):
                     raise ValueError("Подписка принадлежит другому треду BB")
                 if not state.get("setup_pending"):
-                    if state["schedule"] and not state["paused"]:
+                    if state["schedule"] and not ended(state, now):
                         return public(state)  # A concurrent activation already completed.
                     raise ValueError("Подписка не ожидает включения")
                 state["environment"] = args.environment
             result = enable(state)
         elif args.action == "unwatch":
-            if args.platform and state["platform"] != args.platform:
-                raise ValueError("Подписка принадлежит другой платформе")
             if not state["schedule"]:
                 matches = matching_schedules(state)
                 if len(matches) > 1:
@@ -629,7 +687,9 @@ def handle(args):
                 result["board_items"] = board.active_items(db, args.id)
             return result
         elif args.action == "resolve":
-            if state["paused"] or (state["until"] and state["until"] <= now):
+            if state.get("suspended"):
+                raise ValueError("Подписка на паузе")
+            if ended(state, now):
                 raise ValueError("This watch has ended")
             if args.token != state.get("token") or state.get("reviewed") is None or state["lease"] <= now:
                 raise ValueError("Stale or unreviewed batch")

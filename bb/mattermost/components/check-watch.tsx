@@ -19,8 +19,8 @@ export function CheckWatch({ watch }: { watch: Watch }) {
   }
   return <span className="mm-check-now">
     <button className="mm-icon" aria-label={`Проверить сейчас: ${watch.title || watch.url}`}
-      title="Проверить сейчас" disabled={busy || watch.paused} onClick={() => void check()}>
+      title="Проверить сейчас" disabled={busy || watch.paused || watch.suspended} onClick={() => void check()}>
       <Icon name="RefreshCw" className="mm-action-glyph" aria-hidden />
-    </button>{(busy || info) && <small role="status">{busy ? "Проверяем…" : info}</small>}
+    </button>{!watch.suspended && (busy || info) && <small role="status">{busy ? "Проверяем…" : info}</small>}
   </span>;
 }

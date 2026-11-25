@@ -14,6 +14,11 @@ const examples: Record<string, SidebarWatch[]> = {
   ],
   "Всё спокойно": [{ id: "qa", name: "#qna-team-promo", status: "resolved", paused: false }],
   "Есть сбой": [{ id: "qa", name: "#qna-team-promo", status: "normal", paused: false, problem: "Сессия истекла" }],
+  "Часть на паузе": [
+    { id: "qa", name: "#qna-team-promo", status: "answer", paused: false, suspended: true },
+    { id: "team", name: "#promo-support", status: "normal", paused: false },
+  ],
+  "Все на паузе": [{ id: "qa", name: "#qna-team-promo", status: "answer", paused: false, suspended: true }],
   "Нет подписок": [],
 };
 
@@ -25,6 +30,8 @@ export function SidebarSettings() {
     optimistic: (mode, cache) => cache.update("headerMode", null, () => mode),
   });
   const [scenario, setScenario] = useState("Ждут ответа");
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  const sample = examples[scenario]!.map(w => ({ ...w, suspended: overrides[w.id] ?? w.suspended }));
   const mode = query.data;
   if (!mode) return query.error ? <p role="alert">Не удалось загрузить режим. <button onClick={() => void query.refetch()}>Повторить</button></p> : null;
   return <div className="mm-ui mm-sidebar-settings">
@@ -35,11 +42,11 @@ export function SidebarSettings() {
       }}>
         {headerModes.map(key => <option key={key} value={key}>{headerModeLabels[key]}</option>)}
       </select></label>
-      <label>Сценарий для примера<select value={scenario} onChange={e => setScenario(e.target.value)}>
+      <label>Сценарий для примера<select value={scenario} onChange={e => { setScenario(e.target.value); setOverrides({}); }}>
         {Object.keys(examples).map(name => <option key={name}>{name}</option>)}
       </select></label></div>
     <div className="mm-sidebar-preview" aria-label="Предпросмотр строки сайдбара"><strong>Вопросы команды промо</strong>
-      <SidebarBadges key={mode + scenario} mode={mode} watches={examples[scenario]!} colors={colors.data ?? defaults} />
+      <SidebarBadges key={mode + scenario} mode={mode} watches={sample} demo={(id, value) => setOverrides(old => ({ ...old, [id]: value }))} colors={colors.data ?? defaults} />
     </div>
     {change.error && <p role="alert">Не удалось сохранить режим. {change.error.message}</p>}
     {query.error && <p role="alert">Не удалось обновить режим. <button onClick={() => void query.refetch()}>Повторить</button></p>}
