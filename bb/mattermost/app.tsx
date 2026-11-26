@@ -1,4 +1,5 @@
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
+import { MessageLinks } from "./components/message-links";
 import { MessageStatus } from "./components/status";
 import { MattermostPanel } from "./components/board";
 import { ThreadSection } from "./components/thread-section";
@@ -14,6 +15,7 @@ import "./app.css";
 export default definePluginApp(app => {
   app.contentScripts.register({ id: "sidebar-watches", mount: mountSidebarRows });
   app.slots.experimental_appOverlay({ id: "sidebar-watches", component: SidebarOverlay });
+  app.slots.experimental_appOverlay({ id: "message-links", component: MessageLinks });
   app.slots.settingsSection({ id: "sidebar-badges", title: "Бейджи в списке тредов", component: SidebarSettings });
   app.slots.settingsSection({ id: "connection", title: "Подключение к Mattermost", component: ConnectionSettings });
   app.slots.settingsSection({ id: "status-colors", title: "Цвета статусов", component: ColorSettings });

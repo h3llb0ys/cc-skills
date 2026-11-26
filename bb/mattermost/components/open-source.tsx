@@ -1,5 +1,4 @@
 import { useState } from "react";
-import type { MouseEvent } from "react";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { experimental_Icon as Icon, useBbNavigate, useSettings } from "@get-bb/plugin-sdk/app";
 import { sourceTargets } from "../settings";
@@ -8,13 +7,17 @@ import type { Watch } from "../contract";
 type Target = keyof typeof sourceTargets;
 const icons = { web: "Globe", app: "Laptop" } as const;
 
+export function preferredSourceTarget(setting: unknown): Target {
+  return setting === sourceTargets.app ? "app" : "web";
+}
+
 export function sourceLink(nav: ReturnType<typeof useBbNavigate>, url: string, target: Target) {
   const href = target === "web" ? url : url.replace(/^https:/i, "mattermost:");
   return {
     href,
     target: target === "web" ? "_blank" : undefined,
     rel: "noopener noreferrer",
-    onClick(event: MouseEvent<HTMLAnchorElement>) {
+    onClick(event: Pick<MouseEvent, "metaKey" | "ctrlKey" | "shiftKey" | "altKey" | "preventDefault">) {
       if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && nav.openUrl(href)) {
         event.preventDefault();
       }
@@ -26,7 +29,7 @@ export function OpenSource({ watch }: { watch: Watch }) {
   const settings = useSettings();
   const nav = useBbNavigate();
   const [open, setOpen] = useState(false);
-  const target: Target = settings.values?.openTarget === sourceTargets.app ? "app" : "web";
+  const target = preferredSourceTarget(settings.values?.openTarget);
   const title = watch.title || watch.channel || watch.url;
   const action = target === "app" ? "Открыть в приложении" : "Открыть в браузере";
   const disabled = settings.isLoading || watch.source_link_blocked;

@@ -58,6 +58,7 @@ export const contract = defineRpcContract({
     rows: z.array(summary), latest: summary.nullable(), unread: z.number(), more: z.boolean(), child: z.string().nullable(),
   }) },
   openSummary: { input: z.object({ chat: thread, id: cursor }), output: summary.extend({ body: z.string(), draft: z.string() }) },
+  sourceServer: { input: z.null(), output: z.string(), tags: () => ["connection"] },
   connection: { input: z.null(), output: connectionState },
   saveConnection: { input: credentials, output: connectionState },
   testConnection: { input: credentials, output: z.object({ username: z.string() }) },

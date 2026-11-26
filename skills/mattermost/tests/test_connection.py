@@ -34,6 +34,17 @@ class ConnectionTests(unittest.TestCase):
         self.assertTrue(self.file.read_text().startswith("# retained\nOTHER=1\n"))
         self.assertEqual(Client().headers["X-CSRF-Token"], "test")
 
+    def test_source_url_matches_client_with_environment_only_or_a_different_saved_server(self):
+        with patch.dict(os.environ, MM_URL="https://env.example/team/", MM_COOKIE="session=fixture"):
+            self.assertEqual(connection("source-url"), Client().base)
+            connection("save", self.data)
+            self.assertEqual(connection("status"), self.saved)
+            self.assertEqual(connection("source-url"), Client().base)
+            with patch.dict(os.environ, MM_URL="https://user@invalid.example"):
+                with self.assertRaises(ValueError):
+                    connection("source-url")
+        self.assertEqual(connection("source-url"), self.saved["url"])
+
     def test_check_uses_form_values_without_saving_and_keeps_saved_cookie_on_its_site(self):
         connection("save", self.data)
         def me(client, path):

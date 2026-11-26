@@ -10,6 +10,8 @@ from client import ApiError, AuthError, Client, config_path, read_config, site_u
 
 
 def connection(action, data=None):
+    if action == "source-url" and os.environ.get("MM_URL"):
+        return site_url(os.environ["MM_URL"])
     path = config_path()
     lines = path.read_text().splitlines(keepends=True) if path.exists() else []
     try:
@@ -21,6 +23,8 @@ def connection(action, data=None):
         if action == "status":
             return {"url": "", "hasCookie": False, "needsRepair": True}
         saved_url, saved_cookie = "", ""
+    if action == "source-url":
+        return saved_url
     if action == "status":
         return {"url": saved_url, "hasCookie": bool(saved_cookie)}
 

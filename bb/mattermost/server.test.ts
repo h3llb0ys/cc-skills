@@ -26,24 +26,33 @@ db.commit()`;
     board(input: {answer:number; attention:number; resolved:number}): Promise<unknown>;
     readCard(input: {id:number; revision:number}): Promise<null>;
     saveConnection(input: { url: string; cookie: string }): Promise<unknown>;
+    sourceServer(): Promise<string>;
     connection(): Promise<unknown>;
     testConnection(input: { url: string; cookie: string }): Promise<unknown>;
     edit(input: {id:string; chat?:string; interval:number; rule:string; push:null; draft:boolean; until:null}): Promise<null>;
   };
   let handlers!: Handlers;
+  const invalidate = vi.fn();
   try {
     execFileSync("python3", ["-c", init, join(dir,"watches.sqlite3"), id]);
     plugin({ agents:{contributeInstructions:()=>{}}, pluginId:"mattermost", settings:{define:()=>({get:async()=>({stateDirectory:dir})})},
       sdk:{threads:{get: async ({threadId}: {threadId:string}) => ({id:threadId, projectId:"proj1", environmentId:"new-env", visibility:"visible"})},
         plugins:{list:async()=>({plugins:[{id:"mattermost",rootDir:process.cwd()}]})}},
       storage:{kv:{get:async()=>undefined}},realtime:{publish:()=>{}},
-      rpc:{register: (_:unknown,h:Handlers)=>{handlers=h;}} } as unknown as BbPluginApi);
+      rpc:{experimental_invalidate:invalidate, register: (_:unknown,h:Handlers)=>{handlers=h;}} } as unknown as BbPluginApi);
+    vi.stubEnv("MM_URL", "");
     vi.stubEnv("MM_CONFIG", join(dir, "mm.env"));
     expect(await handlers.connection()).toEqual({ url: "", hasCookie: false });
     const credentials = { url: "https://mm.example", cookie: "session=fixture" };
     const publicConfig = { url: credentials.url, hasCookie: true };
     expect(await handlers.saveConnection(credentials)).toEqual(publicConfig);
+    expect(invalidate).toHaveBeenCalledWith(["connection"]);
     expect(await handlers.connection()).toEqual(publicConfig);
+    expect(await handlers.sourceServer()).toBe(credentials.url);
+    vi.stubEnv("MM_URL", "https://override.example/company/");
+    expect(await handlers.sourceServer()).toBe("https://override.example/company");
+    expect(await handlers.connection()).toEqual(publicConfig);
+    vi.stubEnv("MM_URL", "");
     await expect(handlers.testConnection({ url: "https://other.example", cookie: "" })).rejects.toThrow("Введите cookie");
     const read = async () => contract.list.output.parse(await handlers.list()).watches;
     expect(await read()).toMatchObject([{id,status:"answer",interval:5}]);

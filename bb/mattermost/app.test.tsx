@@ -565,3 +565,80 @@ it("pauses and resumes the selected subscription through icon-only actions", asy
     await waitFor(() => expect(change).toHaveBeenCalledWith({ id: watch.id, suspended: false }));
   } finally { view.lifecycle.unmount(); }
 });
+
+it.each(["В приложении", "В браузере"])("opens Markdown permalinks using the subscription preference %s", async preference => {
+  const app = await loadPluginApp(() => import("./app"));
+  const server = "https://mm.example/mattermost";
+  const path = "/team/pl/" + "a".repeat(26) + "?from=chat#reply";
+  const url = server + path;
+  const fixture = document.createElement("div");
+  fixture.innerHTML = '<div data-message-column><div data-markdown-preview><a target="_blank"><b>Вопрос Муллина</b></a></div></div>';
+  document.body.append(fixture);
+  const anchor = fixture.querySelector("a")!;
+  anchor.href = url;
+  const hostClick = vi.fn((event: MouseEvent) => event.preventDefault());
+  anchor.addEventListener("click", hostClick);
+  const open = vi.fn(() => true);
+  const view = renderSlot(app.appOverlays.find(s => s.id === "message-links")!, {}, {
+    settings: { openTarget: preference }, rpc: { sourceServer: () => server }, openUrl: open,
+  });
+  try {
+    const desktop = preference === "В приложении";
+    const expected = desktop ? url.replace("https:", "mattermost:") : url;
+    fireEvent.click(anchor.querySelector("b")!);
+    await waitFor(() => expect(open).toHaveBeenCalledWith(expected));
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(hostClick).not.toHaveBeenCalled();
+    open.mockClear();
+    hostClick.mockClear();
+    if (desktop) {
+      open.mockReturnValue(false);
+      // Observe the link that the browser would activate after BB declines the scheme.
+      let nativeHref = "";
+      document.addEventListener("click", e => { nativeHref = anchor.href; e.preventDefault(); }, { capture: true, once: true });
+      fireEvent.click(anchor);
+      expect(nativeHref).toBe(expected);
+      await waitFor(() => expect(anchor.href).toBe(url));
+      expect(anchor.target).toBe("_blank");
+      expect(hostClick).not.toHaveBeenCalled();
+    }
+    open.mockClear();
+    for (const other of [server + "/docs", "https://mm.example" + path, "https://other.example/mattermost" + path]) {
+      anchor.href = other;
+      fireEvent.click(anchor);
+    }
+    expect(hostClick).toHaveBeenCalledTimes(3);
+    expect(open).not.toHaveBeenCalled();
+  } finally { view.lifecycle.unmount(); fixture.remove(); }
+});
+
+it("routes a single early answer click after loading and releases other hosts to BB", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  const server = "https://mm.example";
+  const path = "/team/channels/promo";
+  const fixture = document.createElement("div");
+  fixture.innerHTML = '<div data-message-column><div data-markdown-preview><a>Источник</a><a>Другой сервер</a></div></div>';
+  document.body.append(fixture);
+  const [source, other] = Array.from(fixture.querySelectorAll("a"));
+  source.href = server + path;
+  other.href = "https://other.example" + path;
+  const host = vi.fn((e: MouseEvent) => e.preventDefault());
+  fixture.addEventListener("click", host);
+  let resolve!: (url: string) => void;
+  const loading = new Promise<string>(done => { resolve = done; });
+  const open = vi.fn(() => true);
+  const view = renderSlot(app.appOverlays.find(s => s.id === "message-links")!, {}, {
+    settings: { openTarget: "В приложении" }, rpc: { sourceServer: () => loading }, openUrl: open,
+  });
+  try {
+    fireEvent.click(source);
+    fireEvent.click(other);
+    expect(host).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+    await act(async () => { resolve(server); });
+    await waitFor(() => expect(open).toHaveBeenCalledWith("mattermost://mm.example" + path));
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(host).toHaveBeenCalledTimes(1);
+    expect(host.mock.calls[0][0].target).toBe(other);
+  } finally { view.lifecycle.unmount(); fixture.remove(); }
+});

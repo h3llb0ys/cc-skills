@@ -105,8 +105,13 @@ export default function mattermost(bb: BbPluginApi) {
       bb.realtime.publish("changed", {});
       return detail;
     },
+    sourceServer: () => cli(["connection", "source-url"]),
     connection: () => cli(["connection", "status"]),
-    saveConnection: input => cli(["connection", "save"], input),
+    saveConnection: async input => {
+      const saved = await cli(["connection", "save"], input);
+      bb.rpc.experimental_invalidate(["connection"]);
+      return saved;
+    },
     testConnection: input => cli(["connection", "test"], input),
     colors,
     list: async () => {
