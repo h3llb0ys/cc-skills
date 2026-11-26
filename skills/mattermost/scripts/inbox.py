@@ -1,4 +1,4 @@
-"""BB summary history. Callers own the SQLite transaction."""
+"""Platform-isolated summary history. Callers own the SQLite transaction."""
 import json
 
 
@@ -7,6 +7,8 @@ def initialize(db):
         id INTEGER PRIMARY KEY, chat TEXT NOT NULL, source TEXT NOT NULL,
         headline TEXT NOT NULL, body TEXT NOT NULL, draft TEXT NOT NULL, url TEXT NOT NULL,
         status TEXT NOT NULL, created INTEGER NOT NULL, opened INTEGER NOT NULL DEFAULT 0)""")
+    if "platform" not in {row[1] for row in db.execute("PRAGMA table_info(summaries)")}:
+        db.execute("ALTER TABLE summaries ADD COLUMN platform TEXT NOT NULL DEFAULT 'bb'")
     db.execute("CREATE TABLE IF NOT EXISTS summary_sources (summary INTEGER PRIMARY KEY, watch TEXT NOT NULL)")
     db.execute("CREATE INDEX IF NOT EXISTS summary_sources_watch ON summary_sources(watch,summary)")
     db.execute("CREATE INDEX IF NOT EXISTS summaries_chat ON summaries(chat, id)")
@@ -15,29 +17,29 @@ def initialize(db):
 
 
 def record(db, state, headline, message, draft, url, status, now):
-    entry = db.execute("""INSERT INTO summaries(chat, source, headline, body, draft, url, status, created)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (state["chat"], state.get("title") or state["url"], headline, message, draft, url, status, now))
+    entry = db.execute("""INSERT INTO summaries(chat, source, headline, body, draft, url, status, created, platform)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (state["chat"], state.get("title") or state["url"], headline, message, draft, url, status, now, state["platform"]))
     db.execute("INSERT INTO summary_sources VALUES (?, ?)", (entry.lastrowid, state["id"]))
 
 
 def listing(db, chat, before=None):
     fields = "id, source, headline, url, status, created, opened, (SELECT watch FROM summary_sources WHERE summary=id) AS watch_id"
     def fetch(where, params, limit):
-        cursor = db.execute(f"SELECT {fields} FROM summaries WHERE chat=? {where} ORDER BY id DESC LIMIT ?",
+        cursor = db.execute(f"SELECT {fields} FROM summaries WHERE platform='bb' AND chat=? {where} ORDER BY id DESC LIMIT ?",
                             (chat, *params, limit))
         return [dict(zip((col[0] for col in cursor.description), row)) for row in cursor]
 
     rows = fetch("AND id < ?" if before else "", (before,) if before else (), 21)
     latest = fetch("AND opened=0", (), 1)
-    unread = db.execute("SELECT COUNT(*) FROM summaries WHERE chat=? AND opened=0", (chat,)).fetchone()[0]
+    unread = db.execute("SELECT COUNT(*) FROM summaries WHERE platform='bb' AND chat=? AND opened=0", (chat,)).fetchone()[0]
     child = db.execute("SELECT child FROM summary_threads WHERE chat=?", (chat,)).fetchone()
     return dict(rows=rows[:20], more=len(rows) > 20, unread=unread,
                 latest=latest[0] if latest else None, child=child[0] if child else None)
 
 
 def open_summary(db, chat, key):
-    cursor = db.execute("SELECT *, (SELECT watch FROM summary_sources WHERE summary=id) AS watch_id FROM summaries WHERE chat=? AND id=?", (chat, key))
+    cursor = db.execute("SELECT *, (SELECT watch FROM summary_sources WHERE summary=id) AS watch_id FROM summaries WHERE platform='bb' AND chat=? AND id=?", (chat, key))
     row = cursor.fetchone()
     if not row:
         raise ValueError("Сводка не найдена в этом треде")

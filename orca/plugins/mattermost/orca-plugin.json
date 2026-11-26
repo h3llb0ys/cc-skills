@@ -1,0 +1,25 @@
+{
+  "manifestVersion": 2,
+  "id": "mattermost",
+  "name": "Mattermost",
+  "version": "0.1.0",
+  "description": "Подписки Mattermost, сводки и локальный планировщик Orca",
+  "engines": {
+    "orca": ">=1.4.278"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "mattermost",
+        "title": "Mattermost",
+        "icon": "bell",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ]
+  },
+  "capabilities": []
+}

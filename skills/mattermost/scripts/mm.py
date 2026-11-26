@@ -103,7 +103,7 @@ def parser():
         if name in ("finish-setup", "edit"):
             for flag in ("--chat", "--owner", "--environment"):
                 p.add_argument(flag, required=name == "finish-setup")
-        if name in ("unwatch", "pause", "resume"):
+        if name in ("unwatch", "pause", "resume", "check", "edit", "enable"):
             p.add_argument("--platform", choices=["bb", "orca"])
         if name == "edit":
             p.add_argument("--destination", choices=["chat", "shared"])

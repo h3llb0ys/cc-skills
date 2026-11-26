@@ -1,0 +1,3 @@
+export type Form = { url: string; owner: string; chat: string; timezone: string; interval: string; rule: string; until: string; draft: boolean }
+export type Watch = Form & { id: string; title: string; kind: string; paused?: boolean; suspended?: boolean; schedule_state: string; processing_pending?: boolean; last_check_quiet?: boolean; last_checked_at?: number; next?: number; source_problem?: string; dispatch_problem?: string; delivery_problem?: string }
+export type Summary = { truncated?: boolean; id: number; headline: string; body: string; draft: string; url: string; created: number; source: string }

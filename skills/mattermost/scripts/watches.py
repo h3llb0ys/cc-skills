@@ -62,7 +62,7 @@ def initial_review_pending(state):
 def public(state):
     data = {k: v for k, v in state.items()
             if k in ("id", "url", "platform", "chat", "owner", "interval", "rule", "push",
-                     "until", "schedule", "setup_pending", "paused", "suspended", "timezone", "push_problem", "source_problem", "dispatch_problem", "delivery_problem", "last_checked_at", "last_processed_at", "last_check_quiet", "destination", "kind", "channel", "title", "draft", "status")}
+                     "until", "next", "schedule", "setup_pending", "paused", "suspended", "timezone", "push_problem", "source_problem", "dispatch_problem", "delivery_problem", "last_checked_at", "last_processed_at", "last_check_quiet", "destination", "kind", "channel", "title", "draft", "status")}
     data["processing_pending"] = not state["paused"] and not state.get("suspended") and bool(state.get("batch") or state.get("unprepared") or initial_review_pending(state))
     if state.get("channel_scan"):
         data["review_stage"] = "reading"
@@ -111,7 +111,7 @@ def worker_prompt(state):
             "reassess the retained context and schedule the earliest remaining unanswered deadline. "
             f"Run {cli} resolve {state['id']} TOKEN, replacing TOKEN with the reviewed batch token. "
             "For a matching event provide the summary in Russian, reason, permalink and requested draft "
-            "via --message-file (use a temporary file). For a BB summary also pass --headline (short Russian topic), "
+            "via --message-file (use a temporary file). For a summary also pass --headline (short Russian topic), "
             "--post-id (the most relevant reviewed Mattermost post ID) and put a requested reply draft separately "
             "in --draft-file. Keep links to all relevant posts in the summary body; use --push only if the saved push rule matches. "
             "For an expired cookie send one service notice. Otherwise resolve without a message. "
@@ -272,6 +272,7 @@ def restart_batch(state):
     state.update(token=uuid.uuid4().hex if state.get("batch") else None, lease=0, retry_at=0)
     state.pop("worker_thread", None)
     state.pop("dispatch_problem", None)
+    state.pop("dispatch_uncertain", None)
 
 
 def clear_channel_scan(db, state):
@@ -281,7 +282,7 @@ def clear_channel_scan(db, state):
 
 def clear_batch(db, state):
     clear_channel_scan(db, state)
-    for key in ("batch", "unprepared", "worker_thread", "dispatch_problem", "retry_at", "board_context", "reviewed", "recent_seen"):
+    for key in ("batch", "unprepared", "worker_thread", "dispatch_problem", "dispatch_uncertain", "retry_at", "board_context", "reviewed", "recent_seen"):
         state.pop(key, None)
 
 
@@ -413,6 +414,19 @@ def worker_running(worker):
     return thread["status"] in ("pending", "starting", "active", "stopping") and not thread.get("archivedAt")
 
 
+def batch_waiting(state, now):
+    """Return whether an issued batch is still within its retry or Orca lease window."""
+    deadline = state.get("retry_at", 0)
+    if state["platform"] == "orca":
+        deadline = max(deadline, state.get("lease", 0))
+    return bool(state.get("batch") and deadline > now)
+
+
+def dispatch_retryable(state):
+    """Return whether dispatch failed before an acknowledged or uncertain launch."""
+    return bool(state.get("dispatch_problem") and not state.get("dispatch_uncertain"))
+
+
 def tick(db, state, now, force=False):
     orca = state["platform"] == "orca"
     idle = 1 if orca else 0  # Orca precheck continues on zero only.
@@ -430,7 +444,7 @@ def tick(db, state, now, force=False):
     legacy_worker = state.get("token") and state.get("reviewed") is not None and not state.get("batch") and not state.get("unprepared")
     if legacy_worker and state.get("lease", 0) > now:
         return idle
-    if state.get("batch") and state.get("retry_at", 0) > now and not (force and state.get("dispatch_problem")):
+    if batch_waiting(state, now) and not (force and dispatch_retryable(state)):
         return idle
     if not force and not regular_due and (not reminder_due or state["auth_notified"] or state.get("source_problem")):
         return idle
@@ -465,6 +479,9 @@ def tick(db, state, now, force=False):
     now = int(time.time())
     state.pop("worker_thread", None)
     state.update(lease=now + max(900, state["interval"] * 60), retry_at=max(now + 1, state["next"]))
+    if orca:
+        state.pop("dispatch_problem", None)
+        state.pop("dispatch_uncertain", None)
     if not orca:
         state.pop("dispatch_problem", None)
         with outside_write_lock(db, state):
@@ -507,8 +524,7 @@ def notify(db, state, message, draft, headline, url, status_key):
     status = labels.get(status_key)
     heading = "Уведомление Mattermost" + (f" · {status}" if status else "")
     body = f"Покажи владельцу это уведомление Mattermost как цитату.\n\n{heading}\n{message}"
-    if state["platform"] == "bb":
-        body += f"\n\n{state.get('title') or 'Mattermost'} · {url}"
+    body += f"\n\n{state.get('title') or 'Mattermost'} · {url}"
     if draft:
         body += "\n\nЧерновик ответа\n" + draft
     if state["platform"] == "bb":
@@ -685,7 +701,7 @@ def handle(args):
         elif args.action in ("pause", "resume"):
             if ended(state, now):
                 raise ValueError("Наблюдение завершено")
-            if not state["schedule"]:
+            if not state["schedule"] and state["platform"] == "bb":
                 raise ValueError("У подписки нет расписания")
             if args.action == "pause":
                 # Persist the guard before touching the scheduler. A timeout must
@@ -700,6 +716,13 @@ def handle(args):
                 latest = db.execute("SELECT data FROM watches WHERE id=?", (args.id,)).fetchone()
                 current = json.loads(latest[0]) if latest else None
                 if current and current.get("suspended"):
+                    if current["platform"] == "orca" and not current["schedule"]:
+                        found = matching_schedules(current)
+                        if len(found) > 1:
+                            raise ValueError("Найдено несколько расписаний; подписка приостановлена локально")
+                        if found:
+                            current["schedule"] = found[0]["id"]
+                            save(db, args.id, current)
                     pause(current)
                 return None
             if not state.get("suspended"):
@@ -719,14 +742,26 @@ def handle(args):
         elif args.action == "check":
             if state.get("suspended"):
                 raise ValueError("Подписка на паузе")
-            if state["platform"] != "bb":
-                raise ValueError("Only BB subscriptions can be checked here")
             if ended(state, now):
                 raise ValueError("Наблюдение завершено")
-            if state.get("batch") and state.get("retry_at", 0) > now and not state.get("dispatch_problem"):
+            if batch_waiting(state, now) and not dispatch_retryable(state):
                 return {"outcome": "busy"}
             try:
-                tick(db, state, now, force=True)
+                ready = tick(db, state, now, force=True)
+                if state["platform"] == "orca" and ready == 0:
+                    # Run now bypasses precheck: commit the prepared batch first.
+                    if not state.get("schedule"):
+                        state["dispatch_problem"] = "Нет расписания. Восстановите расписание и повторите проверку."
+                    else:
+                        with outside_write_lock(db, state):
+                            try:
+                                run(["orca", "automations", "run", state["schedule"], "--json"])
+                                state.pop("dispatch_problem", None)
+                            except subprocess.TimeoutExpired:
+                                state["dispatch_uncertain"] = True
+                                state["dispatch_problem"] = "Запуск не подтверждён. До окончания текущего разбора повторный запуск отложен."
+                            except (OSError, subprocess.SubprocessError):
+                                state["dispatch_problem"] = "Запуск разбора не подтверждён. Повторите проверку."
             except WatchChanged:
                 return {"outcome": "busy"}
             problem = state.get("dispatch_problem") or state.get("source_problem")
@@ -737,8 +772,8 @@ def handle(args):
         elif args.action == "edit":
             if ended(state, now):
                 raise ValueError("Наблюдение завершено")
-            if state["platform"] != "bb":
-                raise ValueError("Only active BB subscriptions can be edited here")
+            if state["platform"] == "orca" and (args.push or args.destination == "shared" or any((args.chat, args.owner, args.environment))):
+                raise ValueError("Для смены бота или чата создайте новую подписку; push/shared доступны только BB")
             if not args.rule.strip() or (args.until is not None and args.until <= now):
                 raise ValueError("Check rule and end time")
             if any((args.chat, args.owner, args.environment)):
@@ -858,16 +893,18 @@ def handle(args):
             if message:
                 if state["until"] and time.time() >= state["until"]:
                     raise ValueError("This watch has ended")
-                if state["platform"] == "bb":
-                    inbox.record(db, state, headline, message, draft, url, event_status, now)
+                inbox.record(db, state, headline, message, draft, url, event_status, now)
                 try:
                     notify(db, state, message, draft, headline, url, event_status)
-                except subprocess.TimeoutExpired as error:
-                    if state["platform"] != "bb" or list(error.cmd)[1:3] not in (["thread", "tell"], ["thread", "spawn"]):
+                except (OSError, subprocess.SubprocessError) as error:
+                    if state["platform"] == "orca":
+                        # A timeout may mean accepted delivery. Preserve the inbox and
+                        # consume the receipt rather than automatically duplicate it.
+                        state["delivery_problem"] = "Orca не подтвердила доставку. Сводка сохранена во Входящих; повторно не отправляем."
+                    elif isinstance(error, subprocess.TimeoutExpired) and list(error.cmd)[1:3] in (["thread", "tell"], ["thread", "spawn"]):
+                        state["delivery_problem"] = f"BB не подтвердил доставку «{headline}». Сводка сохранена в общей панели Mattermost в разделе «Подписки»."
+                    else:
                         raise
-                    # BB may already have accepted the submission. Keep the local
-                    # summary and receipt instead of sending a second copy.
-                    state["delivery_problem"] = f"BB не подтвердил доставку «{headline}». Сводка сохранена в общей панели Mattermost в разделе «Подписки»."
                 else:
                     state.pop("delivery_problem", None)
             if not state["auth"]:
