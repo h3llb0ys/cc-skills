@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 import board
 import inbox
-from client import ApiError, AuthError, Client, SiteMismatch, ordered, timestamp
+from client import ApiError, AuthError, Client, IncompletePage, SiteMismatch, ordered, timestamp
 
 
 class ChannelUnavailable(ValueError):
@@ -442,16 +442,15 @@ def tick(db, state, now, force=False):
             if not prepare_batch(db, state, reminder_due):
                 return idle
             auth = False
-        except (ChannelUnavailable, SiteMismatch, ApiError, OSError) as error:
+        except (ChannelUnavailable, IncompletePage, SiteMismatch, ApiError, OSError) as error:
             state["source_link_blocked"] = (source_link_blocked(state) or isinstance(error, (ChannelUnavailable, SiteMismatch))
                                             or (state.get("kind") == "channel" and isinstance(error, ApiError)
                                                 and error.status in (403, 404)))
             state["source_problem"] = str(error)
             return idle
         except AuthError:
-            if force:
-                state["source_link_blocked"] = source_link_blocked(state)
-                state["source_problem"] = "Сессия Mattermost истекла. Проверьте cookie в настройках."
+            state["source_link_blocked"] = source_link_blocked(state)
+            state["source_problem"] = "Сессия Mattermost истекла. Проверьте cookie в настройках."
             if state["auth_notified"]:
                 return idle
             state["reviewed"] = state["seen"]
@@ -547,8 +546,13 @@ def pause(state):
 
 def send_pending_push(db, state):
     if not state.get("suspended") and state["push"] and not ended(state, time.time()):
-        run(["bb", "push-notifications", "send", "--title", "Mattermost", "--thread", state["chat"],
-             "--body", "В наблюдаемой ветке есть важное обновление"])
+        try:
+            run(["bb", "push-notifications", "send", "--title", "Mattermost", "--thread", state["chat"],
+                 "--body", "В наблюдаемой ветке есть важное обновление"])
+        except (OSError, subprocess.SubprocessError):
+            state["push_problem"] = "Push не доставлен. Повторим по расписанию."
+            save(db, state["id"], state)
+            raise
     state["pending_push"] = False
     state.pop("push_problem", None)
     save(db, state["id"], state)
@@ -672,7 +676,7 @@ def handle(args):
                 try:
                     send_pending_push(db, state)
                 except (OSError, subprocess.SubprocessError):
-                    state["push_problem"] = "BB push pending; check delivery channels"
+                    pass  # Keep polling while the push waits for another heartbeat.
             try:
                 result = tick(db, state, now)
             except WatchChanged:
@@ -863,7 +867,7 @@ def handle(args):
                         raise
                     # BB may already have accepted the submission. Keep the local
                     # summary and receipt instead of sending a second copy.
-                    state["delivery_problem"] = f"BB не подтвердил доставку «{headline}». Сводка сохранена во вкладке «История сводок»."
+                    state["delivery_problem"] = f"BB не подтвердил доставку «{headline}». Сводка сохранена в общей панели Mattermost в разделе «Подписки»."
                 else:
                     state.pop("delivery_problem", None)
             if not state["auth"]:

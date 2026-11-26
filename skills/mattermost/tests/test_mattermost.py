@@ -117,6 +117,14 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(fetch.call_args.kwargs["params"]["fromPost"], REPLY)
             self.assertEqual(fetch.call_args.kwargs["params"]["fromCreateAt"], 2)
 
+    def test_repeated_full_legacy_thread_page_is_incomplete(self):
+        root = post(ROOT, 1)
+        posts = [root] + [post(str(i).zfill(26), i + 2, ROOT) for i in range(99)]
+        page = {"posts": {p["id"]: p for p in posts}}
+        with patch.object(self.api, "api", side_effect=[root, page, page]):
+            with self.assertRaises(client.IncompletePage):
+                self.api.thread(URL + ROOT)
+
     def test_channel_filters_creation_time_and_marks_truncation(self):
         old, new = post(ROOT, 1), post(REPLY, 200)
         old["edit_at"] = 300
@@ -796,10 +804,24 @@ class WatchTests(unittest.TestCase):
         self.now += 300
         self.invoke("tick", self.key)
         self.assertEqual(self.calls.call_count, 2)
+        self.assertIn("Сессия", self.invoke("watch", "list")[0]["source_problem"])
         self.client.thread.side_effect = lambda url: ("team", ROOT, self.rows + [post(REPLY, 3, ROOT)])
         self.now += 300
         self.invoke("tick", self.key)
         self.assertEqual(self.invoke("review", self.key)["changed"], [REPLY])
+
+        self.assertNotIn("source_problem", self.invoke("watch", "list")[0])
+
+    def test_incomplete_page_keeps_previous_cursor_until_recovery(self):
+        self.client.thread.side_effect = client.IncompletePage("incomplete thread")
+        self.invoke("tick", self.key)
+        self.assertEqual(self.invoke("watch", "list")[0]["source_problem"], "incomplete thread")
+        self.assertTrue(self.invoke("review", self.key)["idle"])
+        self.client.thread.side_effect = lambda url: ("team", ROOT, self.rows + [post(REPLY, 3, ROOT)])
+        self.now += 300
+        self.invoke("tick", self.key)
+        self.assertEqual(self.invoke("review", self.key)["changed"], [REPLY])
+        self.assertNotIn("source_problem", self.invoke("watch", "list")[0])
 
     def test_manual_pause_invalidates_worker_and_resumes_from_last_processed_cursor(self):
         schedule = dict(name="mm-watch-" + self.key, id="schedule", enabled=True)
@@ -948,8 +970,10 @@ class WatchTests(unittest.TestCase):
         self.calls.side_effect = [None, subprocess.CalledProcessError(1, "push")]
         with self.assertRaises(subprocess.CalledProcessError):
             self.invoke("resolve", self.key, batch["token"], "--message-file", str(text), "--push")
+        self.assertIn("push_problem", self.invoke("watch", "list")[0])
         self.calls.side_effect = None
         self.invoke("tick", self.key)
+        self.assertNotIn("push_problem", self.invoke("watch", "list")[0])
         sent = [call.args[0] for call in self.calls.call_args_list]
         self.assertEqual(sum("tell" in cmd for cmd in sent), 1)
         self.assertEqual(sum("push-notifications" in cmd for cmd in sent), 2)

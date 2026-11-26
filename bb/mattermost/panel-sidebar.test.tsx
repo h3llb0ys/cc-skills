@@ -53,7 +53,7 @@ it("opens the shared watch editor from the panel sidebar for a subscription in a
 
 it("switches the thread preview and collapses the channel without hiding its subscription", async () => {
   const app = await loadPluginApp(() => import("./app"));
-  let saved: "context" | "single" | "channel" = "context";
+  let saved: import("./settings").WidgetLayout = "context";
   const view = renderSlot(app.settingsSections.find(s => s.id === "widget-layout")!, {}, { rpc: {
     colors: () => defaults, widgetLayout: () => saved,
     setWidgetLayout: value => { saved = contract.setWidgetLayout.input.parse(value); return null; },
@@ -61,14 +61,17 @@ it("switches the thread preview and collapses the channel without hiding its sub
   try {
     const preview = await view.findByLabelText("Предпросмотр виджета");
     expect(preview.querySelectorAll(".mm-compact-note")).toHaveLength(1);
-    fireEvent.click(view.getByRole("button", { name: "Одна строка" }));
+    fireEvent.change(view.getByRole("combobox", { name: "Виджет в треде" }), { target: { value: "single" } });
     await waitFor(() => expect(preview.querySelectorAll(".mm-compact-note")).toHaveLength(0));
     expect(saved).toBe("single");
-    fireEvent.click(view.getByRole("button", { name: "По каналам" }));
+    fireEvent.change(view.getByRole("combobox", { name: "Виджет в треде" }), { target: { value: "channel" } });
     fireEvent.click(await view.findByRole("button", { name: "Свернуть qna-team-promo-prgrow" }));
     expect(preview.querySelectorAll(".mm-compact-line")).toHaveLength(1);
     expect(preview.textContent).toContain("qna-team-promo-prgrow");
     fireEvent.click(view.getByRole("button", { name: "Развернуть qna-team-promo-prgrow" }));
     expect(preview.querySelectorAll(".mm-compact-line")).toHaveLength(2);
+    fireEvent.change(view.getByRole("combobox", { name: "Виджет в треде" }), { target: { value: "off" } });
+    await view.findByText("Виджет скрыт");
+    expect(saved).toBe("off");
   } finally { view.lifecycle.unmount(); }
 });

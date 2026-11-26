@@ -183,57 +183,25 @@ it("renders a historical notification with its status and the configured palette
   } finally { rendered.lifecycle.unmount(); }
 });
 
-it("shows all bound watches first and keeps historical updates, drafts and source links in history", async () => {
+it("shows only subscriptions bound to the thread and keeps their actions", async () => {
   const app = await loadPluginApp(() => import("./app"));
   const w = { id: "a".repeat(20), chat:"target", owner:"p", title:"Своя ветка", url:"https://mm.example/team/pl/abc",
     interval:5, rule:"Уведомляй о QA", until:null, push:null, schedule:null, paused:false, timezone:"UTC" };
-  const item = { id: 1, headline: "Когда обновляется кэш?", source: "Канал", status: "attention", created: 1800000000, url: "https://mm.example/team/pl/aaaaaaaaaaaaaaaaaaaaaaaaaa" };
-  let opened = 0;
   const rendered = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
     composer: { scope: { kind:"thread", threadId:"target" } },
     settings: { openTarget: "В приложении" },
     rpc: {
+      widgetLayout: () => "context",
       check: () => ({ outcome: "quiet" }),
-      list: () => ({ watches: [{ ...w, latest_summary:{id:1,created:item.created} }, { ...w, id:"b".repeat(20), title:"Новая подписка" }, { ...w, id:"c".repeat(20), chat:"other", title:"Чужая ветка" }], colors:{answer:null,attention:null,resolved:null} }),
-      board: input => {
-        expect(input).toMatchObject({ chat: "target" });
-        const empty = { rows: [], total: 0 };
-        return { answer: empty, attention: empty, resolved: empty };
-      },
-      inbox: () => ({ rows:[{...item, opened},{...item, id:2, headline:"Старая сводка", opened:1}], latest: opened ? null : {...item,opened}, unread:1-opened, more:false, child:null }),
-      openSummary: input => { expect(input).toEqual({chat:"target",id:1}); opened=1; return {...item,opened,body:"Вопрос о кэше https://mm.example/team/pl/bbbbbbbbbbbbbbbbbbbbbbbbbb https://docs.example/page",draft:"Уточню у команды."}; },
+      list: () => ({ watches: [{ ...w, latest_summary:{id:1,created:1800000000} }, { ...w, id:"b".repeat(20), title:"Новая подписка" }, { ...w, id:"c".repeat(20), chat:"other", title:"Чужая ветка" }], colors:{answer:null,attention:null,resolved:null} }),
     },
   });
   try {
     await rendered.findByText("Новая подписка");
     expect(rendered.getByText("Своя ветка")).toBeTruthy();
-    expect(rendered.queryByText(item.headline)).toBeNull();
-    fireEvent.click(rendered.getByRole("button", { name: "Входящие" }));
-    await rendered.findByText("Пока нет вопросов, требующих внимания.");
-    fireEvent.click(rendered.getByText("История сводок"));
-    await rendered.findByText("Непрочитано: 1");
-    expect(rendered.getByText("Старая сводка")).toBeTruthy();
-    fireEvent.click(rendered.getByText(item.headline));
-    const related = "https://mm.example/team/pl/bbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const relatedLink = await rendered.findByRole("link", { name: related });
-    expect(relatedLink.getAttribute("href")).toBe(related.replace("https:", "mattermost:"));
-    expect(rendered.getByRole("link", { name: "https://docs.example/page" }).getAttribute("href")).toBe("https://docs.example/page");
-    const primary = rendered.getByRole("link", { name: "Открыть в приложении: " + item.headline });
-    expect(primary.getAttribute("href")).toBe("mattermost://mm.example/team/pl/aaaaaaaaaaaaaaaaaaaaaaaaaa");
-    fireEvent.keyDown(rendered.getByRole("button", { name: "Выбрать, где открыть: " + item.headline }), { key: "Enter" });
-    const menu = await rendered.findByRole("menu");
-    expect(menu.querySelector('a[href^="https:"]')?.getAttribute("href")).toBe(item.url);
-    fireEvent.keyDown(menu, { key: "Escape" });
-    fireEvent.click(rendered.getByText("Черновик ответа"));
-    expect((rendered.getByLabelText("Черновик ответа") as HTMLTextAreaElement).value).toBe("Уточню у команды.");
-    fireEvent.click(rendered.getByText("← Назад"));
-    await waitFor(() => expect(rendered.queryByText("Непрочитано: 1")).toBeNull());
-    await rendered.findByText(item.headline);
-    fireEvent.click(rendered.getByText("Подписки · 2"));
-    fireEvent.click(await rendered.findByRole("button", { name: "Открыть сводку в BB →" }));
-    await rendered.findByText(item.headline);
-    expect(rendered.getByText("История сводок").getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(rendered.getByText("Подписки · 2"));
+    expect(rendered.queryByText("История сводок")).toBeNull();
+    expect(rendered.queryByText("Входящие")).toBeNull();
+    expect(rendered.queryByText("Открыть сводку в BB →")).toBeNull();
     fireEvent.keyDown(await rendered.findByRole("button", { name: "Действия: Своя ветка" }), { key: "Enter" });
     expect(await rendered.findByRole("menuitem", { name: "Удалить подписку" })).toBeTruthy();
     fireEvent.click(rendered.getByRole("menuitem", { name: "Проверить сейчас" }));
@@ -247,19 +215,34 @@ it("shows all bound watches first and keeps historical updates, drafts and sourc
   } finally { rendered.lifecycle.unmount(); }
 });
 
-it("explains how to subscribe when only summary history remains", async () => {
+it.each(["off", "single", "empty", "unavailable"])("renders the thread widget in %s mode", async mode => {
   const app = await loadPluginApp(() => import("./app"));
+  const watch = { id: "a".repeat(20), chat: "target", owner: "p", url: "https://mm.example/team/pl/abc",
+    interval: 5, rule: "QA", status: "answer", until: null, push: null, schedule: "job", paused: false, timezone: "UTC" };
   const view = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
     composer: { scope: { kind: "thread", threadId: "target" } },
-    rpc: {
-      list: () => ({ watches: [], colors: { answer: null, attention: null, resolved: null } }),
-      inbox: () => ({ rows: [{ id: 1, source: "QA", headline: "Релиз", url: "https://mm.example/team/pl/a",
-        status: "normal", created: 1800000000, opened: 1 }], more: false, unread: 0, latest: null, child: null }),
-    },
+    rpc: { widgetLayout: () => { if (mode === "unavailable") throw Error("Unavailable"); return mode === "empty" ? "context" : mode; },
+      list: () => ({ watches: mode === "empty" ? [] : [watch, { ...watch, id:"b".repeat(20), suspended:true }],
+        colors: { answer:null, attention:null, resolved:null } }) },
   });
   try {
-    fireEvent.click(await view.findByText("Подписки · 0"));
-    await view.findByText(/Подписок пока нет/);
+    if (mode === "single") {
+      await view.findByText("Mattermost · 2");
+      expect(view.getByText("Важных: 1")).toBeTruthy();
+      const toggle = view.getByRole("button", { name: /Mattermost · 2/ });
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      fireEvent.click(toggle);
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      fireEvent.click(toggle);
+      expect(view.getByRole("button", { name: "Добавить подписку" })).toBeTruthy();
+      fireEvent.click(toggle);
+    } else {
+      await waitFor(() => expect(view.inspection.rpcCalls.some(c => c.method === (mode === "off" || mode === "unavailable" ? "widgetLayout" : "list"))).toBe(true));
+      expect(view.queryByText(/Mattermost/)).toBeNull();
+    }
+    expect(view.queryByRole("button", { name: "Добавить подписку" })).toBeNull();
+    expect(view.inspection.rpcCalls.some(c => ["board", "inbox"].includes(c.method))).toBe(false);
+    if (mode === "off" || mode === "unavailable") expect(view.inspection.rpcCalls.some(c => c.method === "list")).toBe(false);
   } finally { view.lifecycle.unmount(); }
 });
 
@@ -304,7 +287,7 @@ it("shows this thread's subscriptions in the card and Info with a check time and
   const props = { threadId: "target", projectId: "p", environment: null };
   const own = { id: "a".repeat(20), chat: "target", owner: "p", title: "Promo", kind: "channel",
     url: "https://mm.example/team/channels/promo", interval: 10, rule: "QA", until: null, push: null,
-    schedule: "schedule", paused: false, timezone: "UTC", status: "answer", last_checked_at: 1800000000, last_processed_at: 1799999100, processing_pending: true };
+    schedule: "schedule", paused: false, timezone: "UTC", status: "answer", push_problem: "Push не доставлен", last_checked_at: 1800000000, last_processed_at: 1799999100, processing_pending: true };
   const rpc = { list: () => ({ watches: [own, { ...own, chat: "other", title: "Other channel" }],
     colors: { answer: "#123456", attention: null, resolved: null } }) };
   for (const section of [app.threadContextCardSections[0]!, app.threadInfoSections[0]!]) {
@@ -315,6 +298,7 @@ it("shows this thread's subscriptions in the card and Info with a check time and
       expect(link.querySelector(".mm-action-glyph")?.getAttribute("data-icon")).toBe("Globe");
       expect(view.queryByText("Other channel")).toBeNull();
       expect(view.getByText("Ждут ответа").querySelector("i")?.style.backgroundColor).toBe("rgb(18, 52, 86)");
+      expect(view.getByText("Push не доставлен")).toBeTruthy();
       expect(view.getByText(/Ожидает обработки/)).toBeTruthy();
       expect(view.getByText(/^Обработано/).getAttribute("datetime")).toBe(new Date(own.last_processed_at * 1000).toISOString());
       expect(view.container.querySelector("time")?.dateTime).toBe(new Date(own.last_checked_at * 1000).toISOString());
@@ -377,6 +361,11 @@ it("opens the board first, keeps read questions active and copies the edited rep
     fireEvent.click(view.getByText("Показать черновик"));
     await waitFor(() => expect(item.opened).toBe(true));
     fireEvent.change(view.getByLabelText("Черновик ответа"), { target: { value: "В пятницу" } });
+    item.revision++;
+    item.body = "Уточнили вопрос";
+    await view.behavior.emitRealtime("changed", {});
+    await view.findByText(item.body);
+    expect((view.getByLabelText("Черновик ответа") as HTMLTextAreaElement).value).toBe("В пятницу");
     fireEvent.click(view.getByText("Скопировать и открыть в Mattermost"));
     await view.findByText("Черновик скопирован");
     expect(view.inspection.experimental_clipboardWrites).toEqual([{ text: "В пятницу" }]);

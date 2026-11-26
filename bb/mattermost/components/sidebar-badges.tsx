@@ -10,7 +10,7 @@ import { useSubscriptions } from "../hooks/use-subscriptions";
 import type { HeaderMode } from "../settings";
 import { checkTime } from "../time";
 import { PauseGlyph, PauseWatch, type DemoPause } from "./pause-watch";
-import { WatchMarker, type Colors } from "./status";
+import { watchProblem, WatchMarker, type Colors } from "./status";
 
 export type SidebarWatch = Pick<Watch, "id" | "status" | "paused" | "suspended" | "last_checked_at"> & { schedule?: string | null; name: string; problem?: string };
 const priority = ["answer", "problem", "attention"] as const;
@@ -56,7 +56,7 @@ function SidebarSubscriptions({ mode }: { mode: HeaderMode }) {
   const byThread = useMemo(() => {
     const watches = (data?.watches ?? []).map(w => ({
       ...w, name: w.title || w.channel || w.url,
-      problem: w.source_problem || w.dispatch_problem || w.delivery_problem || w.push_problem ||
+      problem: watchProblem(w) ||
         (!w.schedule ? "Расписание не включено" : undefined),
     }));
     return groupWatches(watches);

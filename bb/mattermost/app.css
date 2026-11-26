@@ -35,21 +35,10 @@
 .mm-context-meta,.mm-context-item small { font-size:11px; color:var(--muted-foreground) }
 .mm-context-meta { flex-wrap:wrap; row-gap:0 }
 
-.mm-inbox { padding:4px 8px; min-width:0 }
-.mm-inbox header,.mm-inbox nav,.mm-event-meta { display:flex; flex-wrap:wrap; align-items:center; gap:5px }
-.mm-inbox small,.mm-event-meta { font-size:11px; color:var(--muted-foreground) }
-.mm-inbox .mm-event { display:grid; justify-items:start; gap:5px; border-top:1px solid var(--border); padding-top:6px }
-.mm-inbox .mm-summary-body { margin:0; white-space:pre-wrap; overflow-wrap:anywhere }
-.mm-inbox details,.mm-inbox textarea,.mm-history-row { width:100% }
-.mm-inbox textarea,.mm-fields select { background:var(--background); color:inherit; border:1px solid var(--border); padding:4px }
-.mm-inbox textarea { min-height:4em }
-.mm-history-row { display:block; text-align:left; border-top:1px solid var(--border) }
-.mm-inbox a { text-decoration:underline; text-underline-offset:2px }
+.mm-fields select { background:var(--background); color:inherit; border:1px solid var(--border); padding:4px }
 .mm-ui a.mm-main,.mm-ui .mm-context-name { color:inherit; text-decoration:none; text-align:left }
 .mm-ui a.mm-main:hover,.mm-ui a.mm-context-name:hover { background:var(--muted) }
 .mm-context-title a.mm-context-name { display:block }
-.mm-inbox .mm-primary,.mm-inbox [aria-pressed=true] { background:var(--muted); font-weight:600 }
-.mm-inbox .mm-widget { border:0; padding:0 }
 
 .mm-board-section { margin-top:14px }
 .mm-board-section h3 { margin:0 0 5px; font-size:13px }
@@ -186,3 +175,14 @@
   .mm-panel .mm-board-card:has(.mm-actions > button) .mm-board-meta > .mm-actions { grid-area:4/1/5/-1; justify-self:start }
   .mm-panel .mm-board-card:has(.mm-actions > button) .mm-board-title > :first-child { grid-column:1/-1 }
 }
+
+.mm-widget .mm-all-watches { margin-left:auto }
+.mm-widget .mm-create-bar .mm-icon { margin-left:0 }
+.mm-widget-count { display:inline-flex; align-items:baseline; gap:8px }
+.mm-widget-count small { color:var(--muted-foreground) }
+
+.mm-stack .mm-stack-toggle { width:100%; display:flex; align-items:center; gap:6px; text-align:left }
+.mm-stack-toggle svg { width:14px; height:14px; flex:none }
+.mm-stack [hidden] { display:none }
+
+.mm-widget-options { grid-template-columns:minmax(0,1fr); max-width:290px; margin-bottom:8px }

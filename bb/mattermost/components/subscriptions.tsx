@@ -44,7 +44,7 @@ function FinishSetup({ watch, refresh }: { watch: Watch; refresh: () => Promise<
   </div>;
 }
 
-export function SubscriptionList({ query, threadId, layout, grouped = false, onOpenSummary }: { query: ReturnType<typeof useSubscriptions>; threadId?: string; grouped?: boolean; layout?: WidgetLayout; onOpenSummary?(id: number): Promise<void> }) {
+export function SubscriptionList({ query, threadId, layout, grouped = false }: { query: ReturnType<typeof useSubscriptions>; threadId?: string; grouped?: boolean; layout?: WidgetLayout }) {
   const nav = useBbNavigate();
   const { threads } = experimental_useSidebarThreads();
   const [detail, setDetail] = useState<Detail>(null);
@@ -55,11 +55,11 @@ export function SubscriptionList({ query, threadId, layout, grouped = false, onO
 
   function row(w: Watch) {
     return <WatchRow key={w.id} w={w} detail={detail} setDetail={setDetail} threadId={threadId}
-      layout={layout} onOpenSummary={onOpenSummary} grouped={grouped} names={names} colors={colors} refresh={query.refetch} />;
+      layout={layout} grouped={grouped} names={names} colors={colors} refresh={query.refetch} />;
   }
-  return <section className={threadId ? "mm-ui mm-widget" : "mm-ui"}>
+  return <section className="mm-ui">
     <header className="mm-create-bar">
-      {threadId && <button onClick={() => nav.toPluginPanel("subscriptions", { subPath: "list" })}>Все подписки</button>}
+      {threadId && <button className="mm-all-watches" onClick={() => nav.toPluginPanel("subscriptions", { subPath: "list" })}>Все подписки</button>}
       <button type="button" className="mm-icon" aria-label="Добавить подписку" title="Добавить подписку"
         aria-expanded={creating} disabled={creating} onClick={() => setDetail({ kind: "create" })}>
         <Icon name="Plus" className="mm-action-glyph" aria-hidden />
@@ -73,9 +73,9 @@ export function SubscriptionList({ query, threadId, layout, grouped = false, onO
 }
 
 
-function WatchRow({ layout, w, detail, setDetail, colors, threadId, grouped, names, refresh, onOpenSummary }: {
+function WatchRow({ layout, w, detail, setDetail, colors, threadId, grouped, names, refresh }: {
   layout?: WidgetLayout; w: Watch; detail: Detail; setDetail(value: Detail): void; colors: Record<keyof typeof defaults, string | null>;
-  onOpenSummary?(id: number): Promise<void>; threadId?: string; grouped: boolean; names: Map<string, string>; refresh(): Promise<unknown>;
+  threadId?: string; grouped: boolean; names: Map<string, string>; refresh(): Promise<unknown>;
 }) {
   const rpc = useRpc<typeof contract>();
   const [feedback, setFeedback] = useState("");
@@ -97,15 +97,12 @@ function WatchRow({ layout, w, detail, setDetail, colors, threadId, grouped, nam
   const title = w.title || w.url.split("/").pop();
   const selected = detail?.id === w.id ? detail.kind : null;
   const edit = () => setDetail({ kind: "edit", id: w.id });
-  const latest = w.latest_summary;
-  const openLatest = latest && onOpenSummary ? () => { void onOpenSummary(latest.id); } : undefined;
-  return <div className={layout ? "mm-compact" : "mm-item"} data-suspended={!!w.suspended && !w.paused} key={w.id}>{layout ? <CompactLine w={w} layout={layout} colors={colors} feedback={checkStatus} open={openLatest}
+  return <div className={layout ? "mm-compact" : "mm-item"} data-suspended={!!w.suspended && !w.paused} key={w.id}>{layout ? <CompactLine w={w} layout={layout} colors={colors} feedback={checkStatus}
     title={<WatchAction watch={w} className="mm-main mm-compact-name" onEdit={edit}><span title={title}>{title}</span></WatchAction>}
     actions={<><PauseWatch watch={w} name={title || w.url} /><OpenSource watch={w} />
       <Menu.Root modal={false}><Menu.Trigger asChild><button className="mm-more" aria-label={"Действия: " + title}>···</button></Menu.Trigger>
         <Menu.Portal><Menu.Content className="mm-open-menu mm-actions-menu" align="end" sideOffset={4}>
           <Menu.Item disabled={check.busy || w.paused || w.suspended} onSelect={() => void check.run()}>Проверить сейчас</Menu.Item>
-          {openLatest && <Menu.Item onSelect={openLatest}>Открыть последнюю сводку</Menu.Item>}
           <Menu.Item onSelect={edit}>Настроить подписку</Menu.Item>
           <Menu.Item onSelect={() => setDetail({ kind: "remove", id: w.id })}>Удалить подписку</Menu.Item>
         </Menu.Content></Menu.Portal></Menu.Root></>} /> : <><div className="mm-line">

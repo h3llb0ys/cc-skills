@@ -3,7 +3,7 @@ import { experimental_Icon as Icon, experimental_useRpcQuery, experimental_useRp
 import { contract, defaults, labels, type Watch } from "../contract";
 import { widgetLayouts, widgetLabels, type WidgetLayout } from "../settings";
 import { useColors } from "../hooks/use-colors";
-import type { Colors } from "./status";
+import { watchProblem, type Colors } from "./status";
 import { checkTime } from "../time";
 
 export function useWidgetLayout() {
@@ -39,14 +39,13 @@ function ChannelGroup({ items, row }: { items: Watch[]; row(w: Watch): ReactNode
 
 const clock = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" });
 
-export function CompactLine({ w, colors, layout, title, actions, feedback, open }: {
-  w: Watch; colors: Colors; layout: WidgetLayout; title: ReactNode; actions: ReactNode; feedback?: string; open?: () => void;
+export function CompactLine({ w, colors, layout, title, actions, feedback }: {
+  w: Watch; colors: Colors; layout: WidgetLayout; title: ReactNode; actions: ReactNode; feedback?: string;
 }) {
   const active = !w.suspended && !w.paused;
   const signal = active && w.status && w.status !== "normal" ? w.status : null;
-  const error = active && (w.source_problem || w.dispatch_problem || w.delivery_problem || w.push_problem);
-  const unread = !!w.latest_summary && !w.latest_summary.opened;
-  const note = error || (signal && (signal === "answer" || unread) && labels[signal]);
+  const error = active && watchProblem(w);
+  const note = error || (signal && signal !== "resolved" && labels[signal]);
   const dot = error ? "var(--destructive)" : signal ? colors[signal] ?? defaults[signal] : undefined;
   const when = w.last_checked_at ? new Date(w.last_checked_at * 1000) : null;
   return <><div className="mm-compact-line">
@@ -55,15 +54,20 @@ export function CompactLine({ w, colors, layout, title, actions, feedback, open 
     {dot && <i className="mm-compact-dot" role="img" aria-label={error || labels[signal!]} title={error || labels[signal!]} style={{ background: dot }} />}
     <small role="status" title={feedback || (when ? checkTime.format(when) : undefined)}>{feedback || (w.paused ? "Завершено" : w.suspended ? "На паузе" : when ? clock.format(when) : "—")}</small>
     {actions}</div>
-    {layout === "context" && (note || unread) && <div className="mm-compact-note">
-      {note && <span title={note}>{note}</span>}
-      {unread && (open ? <button onClick={open}>Открыть сводку в BB →</button> : <span>Открыть сводку в BB →</span>)}</div>}</>;
+    {layout === "context" && note && <div className="mm-compact-note"><span title={note}>{note}</span></div>}</>;
+}
+
+export function WidgetCount({ rows }: { rows: Watch[] }) {
+  const important = rows.filter(w => !w.suspended && !w.paused && (w.status === "answer" || w.status === "attention"
+    || watchProblem(w) || !w.schedule)).length;
+  return <span className="mm-widget-count"><strong>Mattermost · {rows.length}</strong>
+    <small>{important ? "Важных: " + important : "Важных нет"}</small></span>;
 }
 
 const channel = "qna-team-promo-prgrow";
 const sample: Watch = { id: "example", chat: "", owner: "", url: "https://example.org/team/channels/" + channel,
   channel, title: channel, kind: "channel", status: "attention", rule: "", interval: 10, draft: false,
-  last_checked_at: 1795703460, schedule: null, paused: false, push: null, until: null, timezone: "UTC",
+  last_checked_at: 1795703460, schedule: "sample-job", paused: false, push: null, until: null, timezone: "UTC",
   latest_summary: { id: 1, created: 1795703460, opened: false } };
 const examples: Watch[] = [{ ...sample, id: "question", kind: "thread", status: "normal", url: "https://example.org/team/pl/question",
   title: "Как получить количество промокодов?", latest_summary: undefined }, sample];
@@ -75,12 +79,15 @@ export function WidgetLayoutSettings() {
     optimistic: (layout, cache) => cache.update("widgetLayout", null, () => layout) });
   if (!mode.data) return mode.error ? <button onClick={() => void mode.refetch()}>Повторить загрузку вида виджета</button> : null;
   const layout = mode.data;
-  return <section className="mm-ui"><div className="mm-tabs" role="group" aria-label="Вид подписок в треде">
-    {widgetLayouts.map(value => <button key={value} aria-pressed={layout === value} disabled={change.isPending}
-      onClick={() => void change.mutate(value).catch(() => {})}>{widgetLabels[value]}</button>)}</div>
-    <div className="mm-list-preview" aria-label="Предпросмотр виджета"><WidgetRows layout={layout} rows={examples} row={w =>
+  return <section className="mm-ui"><div className="mm-fields mm-widget-options">
+    <label><select aria-label="Виджет в треде" value={layout} disabled={change.isPending}
+      onChange={e => void change.mutate(e.currentTarget.value as WidgetLayout).catch(() => {})}>
+      {widgetLayouts.map(value => <option key={value} value={value}>{widgetLabels[value]}</option>)}
+    </select></label>
+    </div>
+    <div className="mm-list-preview" aria-label="Предпросмотр виджета">{layout === "off" ? <small>Виджет скрыт</small> : <WidgetRows layout={layout} rows={examples} row={w =>
       <div className="mm-compact" key={w.id}><CompactLine w={w} colors={colors.data ?? defaults} layout={layout}
         title={<span className="mm-compact-name">{w.title}</span>}
-        actions={<span aria-hidden className="mm-demo-actions"><Icon name="Globe" /><Icon name="ChevronDown" /> ···</span>} /></div>} /></div>
+        actions={<span aria-hidden className="mm-demo-actions"><Icon name="Globe" /><Icon name="ChevronDown" /> ···</span>} /></div>} />}</div>
     {change.error && <p role="alert">{change.error.message}</p>}</section>;
 }

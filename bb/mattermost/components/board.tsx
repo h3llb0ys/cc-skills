@@ -56,7 +56,7 @@ export function Board({ colors, subscriptions, chat }: { colors: Colors; subscri
     return <section className="mm-board-section" key={status} aria-label={labels[status]}>
       <h3>{status === "resolved" ? <button aria-expanded={showResolved} onClick={() => setShowResolved(!showResolved)}>
         <Icon name={showResolved ? "ChevronDown" : "ChevronRight"} aria-hidden /> {heading}</button> : heading}</h3>
-      {!collapsed && <>{rows.map(item => <Card key={item.id + ":" + item.revision} item={item} />)}
+      {!collapsed && <>{rows.map(item => <Card key={item.id} item={item} />)}
         <div className="mm-actions">
           {offsets[status] > 0 && <button onClick={() => page(offsets[status] - 30)}>← Новее</button>}
           {offsets[status] + rows.length < total && <button onClick={() => page(offsets[status] + rows.length)}>Ранее →</button>}

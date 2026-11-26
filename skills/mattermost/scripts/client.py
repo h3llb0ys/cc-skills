@@ -25,6 +25,10 @@ class SiteMismatch(ValueError):
     pass
 
 
+class IncompletePage(ValueError):
+    """Mattermost could not return a complete, advancing page of posts."""
+
+
 class ApiError(ValueError):
     def __init__(self, status, path):
         super().__init__(f"Mattermost returned HTTP {status} for {path}")
@@ -208,12 +212,10 @@ class Client:
             if page.get("has_next") is False or ("has_next" not in page and len(rows) < params["perPage"]):
                 break
             if not replies or replies[-1]["id"] == params.get("fromPost"):
-                if page.get("has_next"):
-                    raise ValueError("Mattermost thread pagination did not advance")
-                break
+                raise IncompletePage("Mattermost thread pagination did not advance")
             params.update(fromPost=replies[-1]["id"], fromCreateAt=replies[-1]["create_at"])
         if root not in posts or selected not in posts:
-            raise ValueError("Mattermost returned an incomplete thread")
+            raise IncompletePage("Mattermost returned an incomplete thread")
         return team, root, ordered(posts.values())
 
     def channel_posts(self, url, since, limit):
@@ -244,7 +246,7 @@ class Client:
         if len(rows) < size:
             return rows, None
         if data["order"] == cursor.get("last_ids"):
-            raise ValueError("Mattermost channel pagination did not advance")
+            raise IncompletePage("Mattermost channel pagination did not advance")
         # "before" excludes every post at its timestamp. Overlap the oldest
         # millisecond and use a page offset when all timestamps coincide.
         anchor = next((p for p in reversed(rows) if p["create_at"] > rows[-1]["create_at"]), None)

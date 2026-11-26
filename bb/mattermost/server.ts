@@ -74,11 +74,16 @@ export default function mattermost(bb: BbPluginApi) {
   bb.agents.contributeInstructions(() => 'When relaying a Mattermost watch notification, keep its summary and permalink. For a notification headed "Уведомление Mattermost · Ждут ответа", "Стоит посмотреть" or "Решено", show the corresponding status as a standalone ::mattermost-status{status="answer"} directive, using attention or resolved for the other two. An ordinary notification needs no directive.');
   bb.rpc.register(contract, {
     widgetLayout: async () => {
-      const layout = await bb.storage.kv.get<WidgetLayout>("widgetLayout");
-      return layout && widgetLayouts.includes(layout) ? layout : "context";
+      const saved = await bb.storage.kv.get<WidgetLayout>("widgetView");
+      if (saved && widgetLayouts.includes(saved)) return saved;
+      const start = await bb.storage.kv.get<string>("widgetStart");
+      const legacy = await bb.storage.kv.get<string>("widgetLayout");
+      if (start === "off" || (!start && legacy === "off")) return "off";
+      const layout = await bb.storage.kv.get<WidgetLayout>("widgetExpandedLayout") ?? legacy;
+      return widgetLayouts.find(value => value !== "off" && value === layout) ?? "context";
     },
     setWidgetLayout: async layout => {
-      await bb.storage.kv.set("widgetLayout", layout);
+      await bb.storage.kv.set("widgetView", layout);
       bb.rpc.experimental_invalidate(["widget-layout"]);
       return null;
     },
