@@ -24,7 +24,7 @@ function ThreadSubscriptions({ threadId, layout }: { threadId: string; layout: W
     <button className="mm-stack-toggle" type="button" aria-expanded={expanded} onClick={toggle}>
       <Icon name={expanded ? "ChevronDown" : "ChevronRight"} aria-hidden /><WidgetCount rows={own} />
     </button>
-    <div hidden={!expanded}><SubscriptionList query={query} threadId={threadId} layout={layout} /></div>
+    <div hidden={!expanded}><SubscriptionList rows={own} query={query} threadId={threadId} layout={layout} /></div>
   </section>;
 }
 

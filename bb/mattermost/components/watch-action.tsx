@@ -4,6 +4,12 @@ import type { Watch } from "../contract";
 import { sourceLink } from "./open-source";
 import { watchActions } from "../settings";
 
+export async function activeSummaryThread(sdk: ReturnType<typeof useSdk>, chat: string, child?: string | null) {
+  if (!child) return;
+  const thread = await sdk.threads.get({ threadId: child }).catch(() => null);
+  if (thread && !thread.archivedAt && !thread.deletedAt && thread.parentThreadId === chat) return thread.id;
+}
+
 export function WatchAction({ watch, className, children, onEdit }: {
   watch: Watch; className?: string; children: ReactNode; onEdit(): void;
 }) {
@@ -14,14 +20,8 @@ export function WatchAction({ watch, className, children, onEdit }: {
   if (action === watchActions.thread) {
     return <button type="button" className={className} title={action} disabled={settings.isLoading}
       onClick={async () => {
-        if (watch.summary_thread) {
-          const child = await sdk.threads.get({ threadId: watch.summary_thread }).catch(() => null);
-          if (child && !child.archivedAt && !child.deletedAt && child.parentThreadId === watch.chat) {
-            nav.toThread(child.id);
-            return;
-          }
-        }
-        nav.toThread(watch.chat);
+        const child = watch.summary_thread && await activeSummaryThread(sdk, watch.chat, watch.summary_thread);
+        nav.toThread(child || watch.chat);
       }}>{children}</button>;
   }
   if (action === watchActions.edit) {

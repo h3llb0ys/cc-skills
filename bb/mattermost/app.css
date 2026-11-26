@@ -8,11 +8,10 @@
 .mm-ui button:not(.mm-main):not(.cc-color-palette-swatch) { padding:3px 6px; border-radius:5px }
 .mm-ui button:hover:not(.cc-color-palette-swatch),.mm-tabs [aria-pressed=true] { background:var(--muted) }
 .mm-ui button:focus-visible,.mm-ui summary:focus-visible { outline:2px solid var(--ring) }
-.mm-item { border-top:1px solid var(--border) }
 .mm-main { text-align:left; min-width:0; flex:1; padding:5px 2px; overflow-wrap:anywhere }
 .mm-title { flex-wrap:wrap; row-gap:0 }
-.mm-title small,.mm-meta,.mm-rule { font-size:12px; color:var(--muted-foreground) }
-.mm-meta,.mm-rule { display:block }
+.mm-title small,.mm-meta { font-size:12px; color:var(--muted-foreground) }
+.mm-meta { display:block }
 .mm-marker { display:inline-flex; align-items:center; gap:4px; font-size:11px; white-space:nowrap }
 .mm-marker i { width:8px; height:8px; border-radius:50%; box-shadow:0 0 0 1px var(--border) }
 .mm-icon { display:inline-grid; place-items:center; flex:none; width:30px; height:30px; border:1px solid var(--border) }
@@ -43,7 +42,7 @@
 .mm-board-section { margin-top:14px }
 .mm-board-section h3 { margin:0 0 5px; font-size:13px }
 .mm-board-section h3 .mm-marker { font-size:inherit }
-.mm-board small,.mm-board time,.mm-check-now small { color:var(--muted-foreground); font-size:11px }
+.mm-board small,.mm-board time { color:var(--muted-foreground); font-size:11px }
 .mm-board-card { margin-bottom:4px; border:1px solid var(--border); border-radius:6px; padding:8px 10px }
 .mm-board-card p { margin:2px 0; color:var(--muted-foreground); overflow-wrap:anywhere }
 .mm-board-title,.mm-board-meta { display:flex; justify-content:space-between; align-items:baseline; gap:8px }
@@ -54,7 +53,6 @@
 .mm-board svg { width:14px; height:14px; vertical-align:middle }
 .mm-board-meta .mm-actions { margin:0 }
 .mm-board-meta .mm-actions>* { display:inline-flex; align-items:center; gap:4px; min-height:24px; padding:2px 5px }
-.mm-check-now { display:flex; gap:3px; align-items:center; flex-wrap:wrap }
 .mm-reply { display:grid; gap:4px; justify-items:start; margin:6px 0 }
 .mm-reply textarea { width:100%; min-height:4em; padding:5px; color:inherit; background:var(--background); border:1px solid var(--border); border-radius:4px }
 
@@ -132,11 +130,9 @@
 .mm-compact-dot { width:7px; height:7px; border-radius:50%; flex:none }
 .mm-compact-note { display:flex; align-items:center; gap:6px; min-width:0; margin:0 0 3px 18px; font-size:11px; color:var(--muted-foreground) }
 .mm-compact-note span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-.mm-compact-note button { flex:none }
 .mm-actions-menu [role=menuitem] { padding:5px 8px; cursor:pointer; border-radius:4px }
 .mm-actions-menu [data-disabled] { opacity:.5 }
 .mm-channel-group > .mm-compact { margin-left:14px }
-.mm-channel-group > summary { cursor:pointer }
 .mm-demo-actions { display:inline-flex; align-items:center; gap:4px }
 .mm-demo-actions svg { width:14px; height:14px }
 .mm-channel-head { display:flex; align-items:center; gap:2px }

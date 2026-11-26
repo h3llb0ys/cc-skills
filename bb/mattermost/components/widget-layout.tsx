@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { experimental_Icon as Icon, experimental_useRpcQuery, experimental_useRpcMutation } from "@get-bb/plugin-sdk/app";
 import { contract, defaults, labels, type Watch } from "../contract";
+import { groupWatches } from "../group-watches";
 import { widgetLayouts, widgetLabels, type WidgetLayout } from "../settings";
 import { useColors } from "../hooks/use-colors";
 import { watchProblem, type Colors } from "./status";
@@ -12,14 +13,10 @@ export function useWidgetLayout() {
 
 export function WidgetRows({ rows, layout, row }: { rows: Watch[]; layout: WidgetLayout; row(w: Watch): ReactNode }) {
   if (layout !== "channel") return <>{rows.map(row)}</>;
-  const groups = new Map<string, Watch[]>();
-  for (const w of rows) {
+  const groups = groupWatches(rows, w => {
     const name = w.channel || (w.kind === "channel" && w.title);
-    const key = name ? w.url.replace(/\/(pl|channels)\/[^/]+\/?$/, "") + "/" + name : w.id;
-    const group = groups.get(key) ?? [];
-    group.push(w);
-    groups.set(key, group);
-  }
+    return name ? w.url.replace(/\/(pl|channels)\/[^/]+\/?$/, "") + "/" + name : w.id;
+  });
   return <>{Array.from(groups, ([key, items]) => {
     if (items.length === 1 && (items[0].kind === "channel" || !items[0].channel)) return row(items[0]);
     return <ChannelGroup key={key} items={items} row={row} />;
@@ -67,10 +64,9 @@ export function WidgetCount({ rows }: { rows: Watch[] }) {
 const channel = "qna-team-promo-prgrow";
 const sample: Watch = { id: "example", chat: "", owner: "", url: "https://example.org/team/channels/" + channel,
   channel, title: channel, kind: "channel", status: "attention", rule: "", interval: 10, draft: false,
-  last_checked_at: 1795703460, schedule: "sample-job", paused: false, push: null, until: null, timezone: "UTC",
-  latest_summary: { id: 1, created: 1795703460, opened: false } };
+  last_checked_at: 1795703460, schedule: "sample-job", paused: false, push: null, until: null, timezone: "UTC" };
 const examples: Watch[] = [{ ...sample, id: "question", kind: "thread", status: "normal", url: "https://example.org/team/pl/question",
-  title: "Как получить количество промокодов?", latest_summary: undefined }, sample];
+  title: "Как получить количество промокодов?" }, sample];
 
 export function WidgetLayoutSettings() {
   const mode = useWidgetLayout();

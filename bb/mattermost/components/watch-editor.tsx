@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { experimental_useRpcQuery, experimental_useSidebarThreads, useBbNavigate, useSdk, useBbContext, useRpc } from "@get-bb/plugin-sdk/app";
+import { activeSummaryThread } from "./watch-action";
 import { contract, type Watch, type WatchSettings } from "../contract";
 
 function localDate(seconds: number | null) {
@@ -17,9 +18,7 @@ function SharedDestination({ chat, title }: { chat: string; title: string }) {
   useEffect(() => {
     let current = true;
     setActive(undefined);
-    if (child) void sdk.threads.get({ threadId: child }).then(thread => {
-      if (current && !thread.archivedAt && !thread.deletedAt && thread.parentThreadId === chat) setActive(child);
-    }).catch(() => {});
+    void activeSummaryThread(sdk, chat, child).then(id => { if (current) setActive(id); });
     return () => { current = false; };
   }, [chat, child, sdk]);
   if (active && active === child) return <button type="button" onClick={() => nav.toThread(active)}>Открыть «Сводки Mattermost» →</button>;
