@@ -1,6 +1,7 @@
 """Private JSON/stdin bridge. No secrets in argv, stdout or diagnostic traces."""
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from contextlib import closing
@@ -13,6 +14,8 @@ sys.path.insert(0, str(SOURCE if (SOURCE / 'mm.py').is_file() else RUNTIME))
 import mm
 import watches
 from connection import connection
+from client import Client, ApiError, AuthError
+from urllib.parse import urlsplit
 
 
 def invoke(*args):
@@ -25,6 +28,46 @@ def invoke(*args):
 
 def handle(data):
     op = data['op']
+    if op == 'recipients':
+        if data.get('owner'):
+            result = json.loads(watches.run(['orca','bot','chats','--bot',data['owner'],'--json']).stdout)['result']
+            return [{'value':c['id'],'label':c.get('title') or 'Без названия'} for c in result['chats'] if not c.get('closed') and not c.get('self')]
+        result = json.loads(watches.run(['orca','bot','list','--json']).stdout)['result']
+        return [{'value':b['name'],'label':b['name']} for b in result['bots'] if not b.get('paused')]
+    if op == 'preview':
+        client = Client(timeout=10)
+        try:
+            if urlsplit(data['url']).path.rstrip('/').split('/')[-2:-1] == ['channels']:
+                team, channel = client.channel(data['url'])
+                source, title = channel['id'], channel['display_name']
+                url = f"{client.base}/{team}/channels/{channel['name']}"
+                kind = 'channel'
+            else:
+                team, source, posts = client.thread(data['url'])
+                title = (next(p['message'] for p in posts if p['id']==source).splitlines() or ['Ветка Mattermost'])[0][:96]
+                url = f"{client.base}/{team}/pl/{source}"
+                kind = 'thread'
+        except AuthError:
+            raise ValueError('Сессия истекла — обновите подключение') from None
+        except ApiError:
+            raise ValueError('Источник недоступен: проверьте ссылку и права доступа') from None
+        binding = watches.watch_id(client.base,source,'orca',data.get('owner',''),data.get('chat',''))
+        try:
+            with closing(watches.connect(readonly=True)) as db:
+                row = watches.bound_watch(db,binding)
+        except sqlite3.OperationalError:
+            row = None
+        return {'url':url,'title':title,'kind':kind,'existing':json.loads(row[0])['id'] if row else None}
+    if op == 'summary':
+        with closing(watches.connect()) as db:
+            cursor = db.execute("SELECT * FROM summaries WHERE id=? AND platform='orca'",(data['id'],))
+            row = cursor.fetchone()
+            if not row:
+                raise ValueError('Сводка не найдена')
+            result = dict(zip((c[0] for c in cursor.description),row))
+        result['body'] = result['body'][:16000]
+        result['draft'] = result['draft'][:16000]
+        return result
     if op == 'connection':
         action = data['action']
         if action not in ('status', 'test', 'save'):
@@ -67,7 +110,7 @@ def handle(data):
     if op == 'create':
         form = data['form']
         args = ['watch', form['url'], '--new', '--platform', 'orca', '--owner', form['owner'], '--chat', form['chat'],
-                '--timezone', form['timezone'], *fields(form)]
+                '--timezone', form['timezone'], '--first-review', form.get('firstReview','open'), *fields(form)]
         row = invoke(*args)
         # Creation is deliberately saved before registration; UI can repair failures.
         return invoke('enable', row['id'], '--platform', 'orca')
@@ -75,6 +118,8 @@ def handle(data):
         args = [op, data['id'], '--platform', 'orca']
         if op == 'edit':
             args += fields(data['form'])
+            if data['form'].get('chat'):
+                args += ['--chat',data['form']['chat']]
         return invoke(*args)
     raise ValueError('Неизвестное действие')
 

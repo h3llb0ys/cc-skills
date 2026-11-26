@@ -17,7 +17,11 @@ spec.loader.exec_module(bridge)
 
 
 class OrcaPluginTests(unittest.TestCase):
-    setUp = base.WatchTests.setUp
+    def setUp(self):
+        base.WatchTests.setUp(self)
+        stub = patch.object(bridge, 'Client', return_value=self.client)
+        stub.start()
+        self.addCleanup(stub.stop)
     invoke = base.WatchTests.invoke
 
     def create(self):
@@ -246,3 +250,75 @@ class OrcaPluginTests(unittest.TestCase):
         self.assertEqual(bridge.handle({'op':'inbox'})['rows'][0]['body'],'Saved summary')
         replacement = self.create()
         self.assertNotEqual(key,replacement)
+
+    def test_new_only_baseline_keeps_messages_arriving_before_first_tick(self):
+        options = self.options[:-2]; options[3] = 'orca'
+        key = self.invoke(*options,'--first-review','new')['id']
+        self.assertEqual(self.invoke('tick',key),1)
+        self.rows.append(base.post(base.REPLY,3,ROOT))
+        self.now += 301
+        self.assertEqual(self.invoke('tick',key),0)
+        batch=self.invoke('review',key)
+        self.assertFalse(batch['initial_review'])
+        self.assertEqual(batch['changed'],[base.REPLY])
+
+    def test_move_orca_chat_keeps_cursor_history_and_rejects_old_receipt(self):
+        key=self.create(); self.invoke('tick',key); batch=self.invoke('review',key)
+        with closing(watches.connect()) as db:
+            old=json.loads(db.execute('SELECT data FROM watches WHERE id=?',(key,)).fetchone()[0])
+        row=bridge.handle({'op':'edit','id':key,'form':{'chat':'new-chat','interval':'5','rule':'QA'}})
+        self.assertEqual(row['id'],key);self.assertEqual(row['chat'],'new-chat')
+        with self.assertRaises(ValueError):self.invoke('resolve',key,batch['token'])
+        with closing(watches.connect()) as db:
+            updated=json.loads(db.execute('SELECT data FROM watches WHERE id=?',(key,)).fetchone()[0])
+        self.assertEqual(updated['seen'],old['seen']);self.assertEqual(updated['schedule'],old['schedule'])
+        self.invoke('tick',key); batch=self.invoke('review',key)
+        message=Path(self.folder.name)/'new';message.write_text('New destination')
+        self.invoke('resolve',key,batch['token'],'--message-file',str(message))
+        self.assertIn('new-chat',self.calls.call_args.args[0])
+
+    def test_preview_reply_canonicalizes_without_creating_watch(self):
+        result=bridge.handle({'op':'preview','url':base.URL+base.REPLY,'owner':'project','chat':'target'})
+        self.assertEqual(result['url'],base.URL+ROOT)
+        self.assertIsNone(result['existing'])
+        self.assertEqual(len(self.invoke('watch','list')),1)
+        self.calls.assert_not_called()
+
+    def test_move_conflict_preserves_existing_destination(self):
+        key=self.create()
+        options=self.options[:-2];options[3]='orca';options[5]='new-chat'
+        self.invoke(*options)
+        with self.assertRaisesRegex(ValueError,'уже подключён'):
+            bridge.handle({'op':'edit','id':key,'form':{'chat':'new-chat','interval':'5','rule':'QA'}})
+        self.assertEqual(next(w for w in self.invoke('watch','list') if w['id']==key)['chat'],'target')
+
+    def test_preview_existing_is_scoped_to_recipient_and_platform(self):
+        key=self.create()
+        row=bridge.handle({'op':'preview','url':base.URL+ROOT,'owner':'project','chat':'target'})
+        self.assertEqual(row['existing'],key)
+        self.assertIsNone(bridge.handle({'op':'preview','url':base.URL+ROOT,'owner':'project','chat':'other'})['existing'])
+
+    def test_new_only_channel_reads_complete_baseline_and_open_mode_keeps_initial_review(self):
+        channel_url='https://mm.example/team/channels/qa'
+        self.client.channel.return_value=('team',{'id':base.CHANNEL,'name':'qa','display_name':'QA'})
+        rows=[base.post(str(i).zfill(26),i+1,channel=base.CHANNEL) for i in range(80)]
+        self.client.posts_by_channel_id.return_value=(rows,False)
+        options=self.options[:-2];options[1]=channel_url;options[3]='orca'
+        key=self.invoke(*options,'--first-review','new')['id']
+        self.client.posts_by_channel_id.assert_called_with(base.CHANNEL,0,None)
+        with closing(watches.connect()) as db:
+            state=json.loads(db.execute('SELECT data FROM watches WHERE id=?',(key,)).fetchone()[0])
+        self.assertEqual(len(state['seen']),80)
+        self.assertFalse(watches.initial_review_pending(state))
+        options[5]='other-chat'
+        opened=self.invoke(*options,'--first-review','open')['id']
+        with closing(watches.connect()) as db:
+            state=json.loads(db.execute('SELECT data FROM watches WHERE id=?',(opened,)).fetchone()[0])
+        self.assertTrue(watches.initial_review_pending(state))
+
+    def test_retry_of_pending_creation_cannot_silently_change_initial_review_mode(self):
+        options=self.options[:-2];options[3]='orca'
+        key=self.invoke(*options,'--new','--first-review','new')['id']
+        with self.assertRaisesRegex(ValueError,'другими условиями'):
+            self.invoke(*options,'--new','--first-review','open')
+        self.assertEqual(self.invoke(*options,'--new','--first-review','new')['id'],key)

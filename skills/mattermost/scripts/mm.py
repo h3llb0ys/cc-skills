@@ -70,6 +70,7 @@ def parser():
     p.add_argument("--output", help="save attachment to a new file")
     p = commands.add_parser("watch", help="configure a watch or list subscriptions")
     p.add_argument("url", help="post permalink or list")
+    p.add_argument("--first-review", choices=["new", "open"], default="open")
     p.add_argument("--new", action="store_true", help="create from the UI without replacing an existing watch")
     p.add_argument("--platform", choices=["bb", "orca"])
     p.add_argument("--owner", help="BB project ID or Orca bot name")

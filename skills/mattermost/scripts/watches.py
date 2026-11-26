@@ -630,7 +630,7 @@ def handle(args):
                 team, channel = client.channel(args.url)
                 root = channel["id"]
                 url = f"{client.base}/{team}/channels/{channel['name']}"
-                posts, _ = client.posts_by_channel_id(root, 0, 50)
+                posts, _ = client.posts_by_channel_id(root, 0, None if args.platform == "orca" and args.first_review == "new" else 50)
                 kind, channel_name, title = "channel", channel["name"], channel["display_name"]
             else:
                 team, root, posts = client.thread(args.url)
@@ -652,7 +652,9 @@ def handle(args):
                         raise ValueError("Этот источник уже подключён к выбранному треду BB")
                     expected = dict(rule=args.rule, interval=args.interval, destination=args.destination or "chat",
                                     draft=args.draft, push=args.push, until=args.until, timezone=args.timezone)
-                    if any(state.get(k) != v for k, v in expected.items()):
+                    if args.platform == "orca":
+                        expected["first_review"] = args.first_review
+                    if any(state.get(k, "open" if k == "first_review" else None) != v for k, v in expected.items()):
                         raise ValueError("Подписка уже создана с другими условиями. Проверь её в списке подписок.")
                     return public(state)
             else:
@@ -662,6 +664,9 @@ def handle(args):
                 key = uuid.uuid4().hex[:20] if occupied else binding
                 state = dict(id=key, binding=binding, seen={}, initial_review_pending=True, schedule=None, auth_notified=False, paused=False,
                              window_start=posts[0]["create_at"] if posts else now * 1000)
+            if not row and args.platform == "orca" and args.first_review == "new":
+                state.update(seen=versions(posts), initial_review_pending=False,
+                             last_processed_at=now, first_review="new")
             if args.new:
                 state["setup_pending"] = True
             restart_batch(state)
@@ -772,11 +777,22 @@ def handle(args):
         elif args.action == "edit":
             if ended(state, now):
                 raise ValueError("Наблюдение завершено")
-            if state["platform"] == "orca" and (args.push or args.destination == "shared" or any((args.chat, args.owner, args.environment))):
-                raise ValueError("Для смены бота или чата создайте новую подписку; push/shared доступны только BB")
+            if state["platform"] == "orca":
+                if args.push or args.destination == "shared" or args.environment or (args.owner and args.owner != state["owner"]):
+                    raise ValueError("Смените чат в текущем боте; для другого бота создайте подписку")
+                if args.chat and args.chat != state["chat"]:
+                    base, _, _, source = state["url"].rsplit("/", 3)
+                    if state.get("kind") == "channel":
+                        source = state.get("channel_id") or resolve_channel_id(Client(), state)
+                    binding = watch_id(base, source, "orca", state["owner"], args.chat)
+                    existing = bound_watch(db, binding)
+                    if existing and json.loads(existing[0])["id"] != state["id"]:
+                        raise ValueError("Этот источник уже подключён к выбранному чату")
+                    state.update(chat=args.chat, binding=binding)
+                    state.pop("delivery_problem", None)
             if not args.rule.strip() or (args.until is not None and args.until <= now):
                 raise ValueError("Check rule and end time")
-            if any((args.chat, args.owner, args.environment)):
+            if state["platform"] == "bb" and any((args.chat, args.owner, args.environment)):
                 move_watch(db, state, args.chat, args.owner, args.environment)
             if args.destination:
                 state["destination"] = args.destination
