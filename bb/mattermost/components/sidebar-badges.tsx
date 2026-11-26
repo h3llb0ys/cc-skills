@@ -1,3 +1,4 @@
+import { groupWatches } from "../group-watches";
 import { useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import * as Popover from "@radix-ui/react-popover";
@@ -53,15 +54,12 @@ function SidebarSubscriptions({ mode }: { mode: HeaderMode }) {
   const { data } = useSubscriptions();
   const rows = useSidebarRows();
   const byThread = useMemo(() => {
-    const groups = new Map<string, SidebarWatch[]>();
-    for (const w of data?.watches ?? []) {
-      const group = groups.get(w.chat) ?? [];
-      group.push({ ...w, name: w.title || w.channel || w.url,
-        problem: w.source_problem || w.dispatch_problem || w.delivery_problem || w.push_problem ||
-          (!w.schedule ? "Расписание не включено" : undefined) });
-      groups.set(w.chat, group);
-    }
-    return groups;
+    const watches = (data?.watches ?? []).map(w => ({
+      ...w, name: w.title || w.channel || w.url,
+      problem: w.source_problem || w.dispatch_problem || w.delivery_problem || w.push_problem ||
+        (!w.schedule ? "Расписание не включено" : undefined),
+    }));
+    return groupWatches(watches);
   }, [data]);
   return <>{rows.map(({ threadId, title, key }) => {
     const watches = byThread.get(threadId);

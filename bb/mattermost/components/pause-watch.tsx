@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useAsyncAction } from "../hooks/use-async-action";
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import { contract, type Watch } from "../contract";
 
@@ -14,19 +14,12 @@ type PauseTarget = Pick<Watch, "id" | "paused" | "suspended"> & { schedule?: str
 
 export function PauseWatch({ watch, name, demo }: { watch: PauseTarget; name: string; demo?: DemoPause }) {
   const rpc = useRpc<typeof contract>();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const { run: toggle, busy, error } = useAsyncAction(async () => {
+    if (demo) demo(watch.id, !watch.suspended);
+    else await rpc.call("setPaused", { id: watch.id, suspended: !watch.suspended });
+  });
   if (watch.paused || (!watch.schedule && !demo)) return null;
   const label = watch.suspended ? "Возобновить подписку" : "Приостановить подписку";
-  async function toggle() {
-    setBusy(true);
-    setError("");
-    try {
-      if (demo) demo(watch.id, !watch.suspended);
-      else await rpc.call("setPaused", { id: watch.id, suspended: !watch.suspended });
-    } catch (cause) { setError(String(cause)); }
-    finally { setBusy(false); }
-  }
   return <><button type="button" className="mm-icon" title={label} aria-label={label + ": " + name}
     disabled={busy} onClick={event => { event.stopPropagation(); void toggle(); }}>
     <PauseGlyph resume={watch.suspended} /></button>{error && <small role="alert">{error}</small>}</>;

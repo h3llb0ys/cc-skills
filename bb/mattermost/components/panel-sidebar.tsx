@@ -1,3 +1,4 @@
+import { groupWatches } from "../group-watches";
 import { experimental_useRpcQuery, experimental_useSidebarThreads, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { contract, defaults, labels, type Watch } from "../contract";
 import { useSubscriptions } from "../hooks/use-subscriptions";
@@ -37,14 +38,7 @@ export function SidebarWatchList({ watches, layout, names, colors, onEdit }: Lis
         : <div className="mm-list-row">{content}</div>}
     </li>;
   }
-  const groups = new Map<string, Watch[]>();
-  if (layout !== "flat") {
-    for (const w of ordered) {
-      const key = layout === "thread" ? w.chat : state(w);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(w);
-    }
-  }
+  const groups = layout === "flat" ? new Map<string, Watch[]>() : groupWatches(ordered, layout === "status" ? state : undefined);
   const keys = layout === "status" ? Object.keys(states).filter(k => groups.has(k))
     : [...groups.keys()].sort((a, b) => (names.get(a) || a).localeCompare(names.get(b) || b, "ru"));
   return <section className="mm-watch-list" aria-label="Подписки Mattermost">

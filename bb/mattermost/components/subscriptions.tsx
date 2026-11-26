@@ -1,3 +1,5 @@
+import { groupWatches } from "../group-watches";
+import { useAsyncAction } from "../hooks/use-async-action";
 import { useState } from "react";
 import { experimental_useSidebarThreads, experimental_Icon as Icon, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { contract, defaults, type Watch } from "../contract";
@@ -14,19 +16,10 @@ type Detail = { kind: "edit" | "remove"; id: string } | { kind: "create"; id?: n
 
 function RemoveWatch({ watch, cancel, removed }: { watch: Watch; cancel(): void; removed(): void }) {
   const rpc = useRpc<typeof contract>();
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
-  async function remove() {
-    setPending(true);
-    setError("");
-    try {
-      await rpc.call("unwatch", { id: watch.id });
-      removed();
-    } catch (cause) {
-      setError(String(cause));
-      setPending(false);
-    }
-  }
+  const { run: remove, busy: pending, error } = useAsyncAction(async () => {
+    await rpc.call("unwatch", { id: watch.id });
+    removed();
+  });
   return <div className="mm-sheet" role="group" aria-label="Подтверждение удаления">
     <span>Удалить подписку «{watch.title || watch.channel || watch.url}»{watch.schedule ? " и её автоматизацию в BB" : ""}?</span>
     <div className="mm-actions">
@@ -39,17 +32,10 @@ function RemoveWatch({ watch, cancel, removed }: { watch: Watch; cancel(): void;
 
 function FinishSetup({ watch, refresh }: { watch: Watch; refresh: () => Promise<unknown> }) {
   const rpc = useRpc<typeof contract>();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  async function activate() {
-    setBusy(true);
-    setError("");
-    try {
-      await rpc.call("finishSetup", { id: watch.id, chat: watch.chat });
-      await refresh();
-    } catch (cause) { setError(String(cause)); }
-    finally { setBusy(false); }
-  }
+  const { run: activate, busy, error } = useAsyncAction(async () => {
+    await rpc.call("finishSetup", { id: watch.id, chat: watch.chat });
+    await refresh();
+  });
   return <div className="mm-actions">
     <button disabled={busy} onClick={() => void activate()}>{busy ? "Включаем…" : "Включить расписание"}</button>
     {error && <span role="alert">{error}</span>}
@@ -64,11 +50,6 @@ export function SubscriptionList({ query, threadId, grouped = false }: { query: 
   const rows = (query.data?.watches ?? []).filter(w => !threadId || w.chat === threadId);
   const colors = query.data?.colors ?? defaults;
   const names = new Map(threads.map(t => [t.id, t.displayTitle]));
-  const groups = new Map<string, Watch[]>();
-  for (const w of rows) {
-    if (!groups.has(w.chat)) groups.set(w.chat, []);
-    groups.get(w.chat)!.push(w);
-  }
 
   function row(w: Watch) {
     const title = w.title || w.url.split("/").pop();
@@ -116,6 +97,6 @@ export function SubscriptionList({ query, threadId, grouped = false }: { query: 
     {creating && <WatchEditor threadId={threadId} close={() => { setDetail(null); void query.refetch(); }} />}
     {query.error && <div role="alert">Ошибка загрузки подписок <button onClick={() => void query.refetch()}>Повторить</button></div>}
     {!rows.length && !creating && !query.error && <p>{query.isLoading ? "Загрузка…" : "Подписок пока нет. Нажми «+», чтобы добавить канал или ветку."}</p>}
-    {grouped ? [...groups].map(([id, items]) => <details key={id} open><summary>{names.get(id) ?? id} · {items.length}</summary>{items.map(row)}</details>) : rows.map(row)}
+    {grouped ? [...groupWatches(rows)].map(([id, items]) => <details key={id} open><summary>{names.get(id) ?? id} · {items.length}</summary>{items.map(row)}</details>) : rows.map(row)}
   </section>;
 }
