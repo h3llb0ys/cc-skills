@@ -42,7 +42,7 @@ it("navigates from the registry, edits conditions and leaves the palette in plug
     expect(target.value).toBe("thread1");
     expect(Array.from(target.options, option => option.text)).toContain("Дежурство");
     fireEvent.change(target, { target: { value: "thread2" } });
-    fireEvent.click(slot.getByRole("checkbox", { name: /общий сабтред сводок/ }));
+    fireEvent.click(slot.getByRole("button", { name: "В сабтред сводок" }));
     fireEvent.change(slot.getByLabelText("Интервал, минуты"), { target: { value: "12" } });
     fireEvent.click(slot.getByText("Сохранить"));
     await waitFor(() => expect(edits).toMatchObject([{ id: w.id, interval: 12, rule: "QA", chat: "thread2", destination: "shared" }]));
@@ -193,7 +193,13 @@ it("shows all bound watches first and keeps historical updates, drafts and sourc
     composer: { scope: { kind:"thread", threadId:"target" } },
     settings: { openTarget: "В приложении" },
     rpc: {
-      list: () => ({ watches: [w, { ...w, id:"b".repeat(20), title:"Новая подписка" }, { ...w, id:"c".repeat(20), chat:"other", title:"Чужая ветка" }], colors:{answer:null,attention:null,resolved:null} }),
+      check: () => ({ outcome: "quiet" }),
+      list: () => ({ watches: [{ ...w, latest_summary:{id:1,created:item.created} }, { ...w, id:"b".repeat(20), title:"Новая подписка" }, { ...w, id:"c".repeat(20), chat:"other", title:"Чужая ветка" }], colors:{answer:null,attention:null,resolved:null} }),
+      board: input => {
+        expect(input).toMatchObject({ chat: "target" });
+        const empty = { rows: [], total: 0 };
+        return { answer: empty, attention: empty, resolved: empty };
+      },
       inbox: () => ({ rows:[{...item, opened},{...item, id:2, headline:"Старая сводка", opened:1}], latest: opened ? null : {...item,opened}, unread:1-opened, more:false, child:null }),
       openSummary: input => { expect(input).toEqual({chat:"target",id:1}); opened=1; return {...item,opened,body:"Вопрос о кэше https://mm.example/team/pl/bbbbbbbbbbbbbbbbbbbbbbbbbb https://docs.example/page",draft:"Уточню у команды."}; },
     },
@@ -202,6 +208,8 @@ it("shows all bound watches first and keeps historical updates, drafts and sourc
     await rendered.findByText("Новая подписка");
     expect(rendered.getByText("Своя ветка")).toBeTruthy();
     expect(rendered.queryByText(item.headline)).toBeNull();
+    fireEvent.click(rendered.getByRole("button", { name: "Входящие" }));
+    await rendered.findByText("Пока нет вопросов, требующих внимания.");
     fireEvent.click(rendered.getByText("История сводок"));
     await rendered.findByText("Непрочитано: 1");
     expect(rendered.getByText("Старая сводка")).toBeTruthy();
@@ -222,13 +230,17 @@ it("shows all bound watches first and keeps historical updates, drafts and sourc
     await waitFor(() => expect(rendered.queryByText("Непрочитано: 1")).toBeNull());
     await rendered.findByText(item.headline);
     fireEvent.click(rendered.getByText("Подписки · 2"));
-    const settings = await rendered.findByRole("button", { name: "Настройки: Своя ветка" });
-    for (const [label, icon] of [["Выбрать, где открыть: Своя ветка", "ChevronDown"], ["Удалить подписку: Своя ветка", "Trash2"]]) {
-      const button = rendered.getByRole("button", { name: label });
-      expect(button.querySelector(".mm-action-glyph")?.getAttribute("data-icon")).toBe(icon);
-    }
-    expect(settings.querySelectorAll("svg.mm-action-glyph circle")).toHaveLength(2);
-    fireEvent.click(settings);
+    fireEvent.click(await rendered.findByRole("button", { name: "Открыть сводку в BB →" }));
+    await rendered.findByText(item.headline);
+    expect(rendered.getByText("История сводок").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(rendered.getByText("Подписки · 2"));
+    fireEvent.keyDown(await rendered.findByRole("button", { name: "Действия: Своя ветка" }), { key: "Enter" });
+    expect(await rendered.findByRole("menuitem", { name: "Удалить подписку" })).toBeTruthy();
+    fireEvent.click(rendered.getByRole("menuitem", { name: "Проверить сейчас" }));
+    await rendered.findByText("Изменений нет");
+    fireEvent.keyDown(rendered.getByRole("button", { name: "Действия: Своя ветка" }), { key: "Enter" });
+    await rendered.findByRole("menuitem", { name: "Настроить подписку" });
+    fireEvent.click(rendered.getByRole("menuitem", { name: "Настроить подписку" }));
     expect(rendered.queryByText("Чужая ветка")).toBeNull();
     expect((rendered.getByLabelText("Куда присылать") as HTMLSelectElement).value).toBe(w.chat);
     expect((rendered.getByLabelText("Полное правило") as HTMLTextAreaElement).value).toBe(w.rule);
@@ -362,7 +374,7 @@ it("opens the board first, keeps read questions active and copies the edited rep
     fireEvent.keyDown(view.getByLabelText("Выбрать, где открыть: " + item.headline), { key: "Enter" });
     expect((await view.findByRole("menuitem", { name: "В браузере" })).getAttribute("href")).toBe(item.url);
     fireEvent.keyDown(view.getByRole("menu"), { key: "Escape" });
-    fireEvent.click(view.getByText("Ответить"));
+    fireEvent.click(view.getByText("Показать черновик"));
     await waitFor(() => expect(item.opened).toBe(true));
     fireEvent.change(view.getByLabelText("Черновик ответа"), { target: { value: "В пятницу" } });
     fireEvent.click(view.getByText("Скопировать и открыть в Mattermost"));
@@ -662,4 +674,25 @@ it("routes a single early answer click after loading and releases other hosts to
     expect(host).toHaveBeenCalledTimes(1);
     expect(host.mock.calls[0][0].target).toBe(other);
   } finally { view.lifecycle.unmount(); fixture.remove(); }
+});
+
+it("keeps an open draft while the watch receives another summary", async () => {
+  const app = await loadPluginApp(() => import("./app"));
+  let latest = 1;
+  const watch = { id: "a".repeat(20), chat: "t", owner: "p", url: "https://mm.example/team/pl/a",
+    title: "QA", schedule: "job", interval: 5, rule: "QA", until: null, push: null, paused: false, timezone: "UTC" };
+  const view = renderSlot(app.navPanels[0]!, { subPath: "list" }, { rpc: {
+    list: () => ({ watches: [{ ...watch, latest_summary: { id: latest, created: latest } }], colors: { answer: null, attention: null, resolved: null } }),
+    openSummary: () => ({ id: 1, created: 1, opened: 1, headline: "Первый вопрос", source: "QA",
+      status: "answer", body: "Текст вопроса", url: watch.url, draft: "Ответ" }),
+  } });
+  try {
+    fireEvent.click(await view.findByText("Открыть сводку в BB →"));
+    fireEvent.click(await view.findByText("Черновик ответа"));
+    fireEvent.change(view.getByRole("textbox"), { target: { value: "Моя правка" } });
+    latest = 2;
+    await view.behavior.emitRealtime("changed", {});
+    expect((view.getByRole("textbox") as HTMLTextAreaElement).value).toBe("Моя правка");
+    expect(view.getByText("Первый вопрос")).toBeTruthy();
+  } finally { view.lifecycle.unmount(); }
 });

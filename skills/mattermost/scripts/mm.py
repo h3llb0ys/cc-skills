@@ -84,6 +84,7 @@ def parser():
     p.add_argument("--until", type=instant, help="end time in ISO 8601 with offset")
     p.add_argument("--destination", choices=["chat", "shared"])
     p = commands.add_parser("board")
+    p.add_argument("--chat", help="show actionable posts bound to this BB thread")
     for status in ("answer", "attention", "resolved"):
         p.add_argument("--" + status, type=positive, default=0)
     p = commands.add_parser("read-card")

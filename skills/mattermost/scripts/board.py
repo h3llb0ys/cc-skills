@@ -146,21 +146,22 @@ def discard(db, watch, post=None):
     db.execute("DELETE FROM board_cards WHERE NOT EXISTS (SELECT 1 FROM board_sources s WHERE s.card=board_cards.id)")
 
 
-def listing(db, status, offset, now):
+def listing(db, status, offset, now, chat=None):
     # Derive the destination and draft visibility from the same active sources.
     active = """WITH active_cards AS (
         SELECT s.card, MIN(s.watch) AS source, MAX(COALESCE(json_extract(d.data,'$.draft'),0)) AS show_draft
         FROM board_sources s JOIN watches d ON d.id=s.watch
         WHERE COALESCE(json_extract(d.data,'$.suspended'),0)=0 AND COALESCE(json_extract(d.data,'$.paused'),0)=0
           AND (json_extract(d.data,'$.until') IS NULL OR json_extract(d.data,'$.until')>?)
+          AND (? IS NULL OR json_extract(d.data,'$.chat')=?)
         GROUP BY s.card)"""
     sources = "FROM board_cards b JOIN active_cards a ON a.card=b.id JOIN watches w ON w.id=a.source WHERE b.status=?"
-    count = db.execute(f"{active} SELECT COUNT(*) {sources}", (now, status)).fetchone()[0]
+    count = db.execute(f"{active} SELECT COUNT(*) {sources}", (now, chat, chat, status)).fetchone()[0]
     rows = db.execute(f"""{active} SELECT b.id,b.revision,b.headline,b.body,
             CASE WHEN a.show_draft THEN b.draft ELSE '' END,
             b.author,b.updated,b.opened,b.url,
             json_extract(w.data,'$.channel'),json_extract(w.data,'$.title'),json_extract(w.data,'$.chat')
-            {sources} ORDER BY b.updated DESC,b.id DESC LIMIT ? OFFSET ?""", (now, status, PAGE, offset))
+            {sources} ORDER BY b.updated DESC,b.id DESC LIMIT ? OFFSET ?""", (now, chat, chat, status, PAGE, offset))
     return dict(total=count, rows=[dict(id=key, revision=revision, headline=head, body=body, draft=draft, author=author,
                 updated=updated, opened=bool(opened), url=url,
                 source=("#" + channel if channel else title or "Mattermost"), chat=chat)

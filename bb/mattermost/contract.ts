@@ -1,5 +1,5 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
-import { headerModes, listLayouts } from "./settings";
+import { widgetLayouts, headerModes, listLayouts } from "./settings";
 import { z } from "zod";
 
 export const labels = { answer: "Ждут ответа", attention: "Стоит посмотреть", resolved: "Решено" } as const;
@@ -25,6 +25,10 @@ export const watch = settings.extend({
   status: z.union([signal, z.literal("normal")]).default("normal"),
   delivery_problem: z.string().optional(),
   dispatch_problem: z.string().optional(),
+  review_stage: z.enum(["queued", "reading", "reviewing"]).optional(),
+  latest_summary: z.object({ id: z.number().int().positive(), created: z.number().int(), opened: z.boolean().optional() }).optional(),
+  last_check_quiet: z.boolean().optional(),
+  last_review_notified: z.boolean().optional(),
   processing_pending: z.boolean().optional(),
   last_processed_at: z.number().int().nonnegative().optional(),
   last_checked_at: z.number().int().nonnegative().optional(),
@@ -45,13 +49,16 @@ export type Summary = z.infer<typeof summary>;
 const card = z.object({ id: cursor, revision: cursor, headline: z.string(), body: z.string(), draft: z.string(), author: z.string(),
   updated: z.number().int(), opened: z.boolean(), source: z.string(), url, chat: thread });
 export type BoardCard = z.infer<typeof card>;
+const offset = z.number().int().nonnegative();
 const section = z.object({ total: z.number().int().nonnegative(), rows: z.array(card) });
 export const contract = defineRpcContract({
+  widgetLayout: { input: z.null(), output: z.enum(widgetLayouts), tags: () => ["widget-layout"] },
+  setWidgetLayout: { input: z.enum(widgetLayouts), output: z.null() },
   listLayout: { input: z.null(), output: z.enum(listLayouts), tags: () => ["list-layout"] },
   setListLayout: { input: z.enum(listLayouts), output: z.null() },
   headerMode: { input: z.null(), output: z.enum(headerModes), tags: () => ["header-mode"] },
   setHeaderMode: { input: z.enum(headerModes), output: z.null() },
-  board: { input: z.record(signal, z.number().int().nonnegative()), output: z.record(signal, section) },
+  board: { input: z.object({ answer: offset, attention: offset, resolved: offset, chat: thread.optional() }), output: z.record(signal, section) },
   readCard: { input: z.object({ id: cursor, revision: cursor }), output: z.null() },
   setPaused: { input: z.object({ id, suspended: z.boolean() }), output: z.null() },
   check: { input: z.object({ id }), output: z.object({

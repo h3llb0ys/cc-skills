@@ -8,6 +8,7 @@ def initialize(db):
         headline TEXT NOT NULL, body TEXT NOT NULL, draft TEXT NOT NULL, url TEXT NOT NULL,
         status TEXT NOT NULL, created INTEGER NOT NULL, opened INTEGER NOT NULL DEFAULT 0)""")
     db.execute("CREATE TABLE IF NOT EXISTS summary_sources (summary INTEGER PRIMARY KEY, watch TEXT NOT NULL)")
+    db.execute("CREATE INDEX IF NOT EXISTS summary_sources_watch ON summary_sources(watch,summary)")
     db.execute("CREATE INDEX IF NOT EXISTS summaries_chat ON summaries(chat, id)")
     db.execute("CREATE INDEX IF NOT EXISTS summaries_unread ON summaries(chat, opened, id)")
     db.execute("CREATE TABLE IF NOT EXISTS summary_threads (chat TEXT PRIMARY KEY, child TEXT NOT NULL)")

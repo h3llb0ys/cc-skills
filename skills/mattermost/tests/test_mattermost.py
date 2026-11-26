@@ -1055,13 +1055,21 @@ class WatchTests(unittest.TestCase):
         draft.write_text("Уточню.")
         self.invoke("resolve", self.key, token, "--message-file", str(summary), "--draft-file", str(draft),
                     "--headline", "Кэш", "--post-id", REPLY, "--status", "answer")
-        self.invoke("unwatch", self.key)
         feed = self.invoke("inbox", "--chat", "target")
         self.assertEqual(feed["unread"], 1)
         item = feed["latest"]
         self.assertEqual((item["headline"], item["url"], item["opened"]), ("Кэш", URL + REPLY, 0))
         with self.assertRaises(ValueError):
             self.invoke("open-summary", str(item["id"]), "--chat", "other")
+        self.invoke("check", self.key)
+        watch = self.invoke("watch", "list")[0]
+        self.assertEqual(watch["latest_summary"], {"id": item["id"], "created": item["created"], "opened": False})
+        self.assertTrue(watch["last_review_notified"])
+        self.assertTrue(watch["last_check_quiet"])
+        self.invoke("unwatch", self.key)
+        recreated = self.invoke(*self.options)
+        self.assertNotEqual(recreated["id"], self.key)
+        self.assertNotIn("latest_summary", self.invoke("watch", "list")[0])
         opened = self.invoke("open-summary", str(item["id"]), "--chat", "target")
         self.assertEqual((opened["draft"], opened["body"]), ("Уточню.", "Есть вопрос про кэш."))
         feed = self.invoke("inbox", "--chat", "target")
@@ -1174,6 +1182,9 @@ class WatchTests(unittest.TestCase):
             self.invoke("resolve", key, review["token"], "--cards-file", str(path), *flags)
             row = self.invoke("board")["answer"]["rows"][0]
             self.assertEqual(row["draft"], "Завтра")
+            self.assertEqual(self.invoke("board", "--chat", "missing")["answer"]["total"], 0)
+            own_row = self.invoke("board", "--chat", "target")["answer"]["rows"][0]
+            self.assertEqual((own_row["chat"], own_row["draft"]), ("target", "Завтра"))
             if key == self.key:
                 self.invoke("read-card", str(row["id"]), str(row["revision"]))
             else:

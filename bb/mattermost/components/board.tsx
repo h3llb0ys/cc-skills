@@ -25,9 +25,9 @@ function Card({ item }: { item: BoardCard }) {
       <a className={item.opened ? "" : "mm-unread"} {...link}>{item.headline}</a>}
       <time dateTime={new Date(item.updated * 1000).toISOString()}>{checkTime.format(item.updated * 1000)}</time></div>
     {item.body && item.body !== item.headline && <p>{item.body}</p>}
-    <div className="mm-board-meta"><small>{item.source}{item.author && " · " + item.author}</small><div className="mm-actions">
+    <div className="mm-board-meta"><small>{item.author && item.author + " · "}{item.source}</small><div className="mm-actions">
       {item.draft && <button aria-expanded={reply} onClick={() => { setReply(!reply); void read(); }}>
-        <Icon name="Reply" aria-hidden /> Ответить</button>}
+        <Icon name="Reply" aria-hidden /> {reply ? "Свернуть черновик" : "Показать черновик"}</button>}
       <OpenSource watch={{ url: item.url, title: item.headline }} onOpen={read} />
     </div></div>
     {item.draft && reply && <ReplyDraft url={item.url} text={edit ?? item.draft} update={setEdit} />}
@@ -36,9 +36,9 @@ function Card({ item }: { item: BoardCard }) {
 }
 
 const firstPage = { answer: 0, attention: 0, resolved: 0 };
-function Board({ colors, subscriptions }: { colors: Colors; subscriptions?: number }) {
+export function Board({ colors, subscriptions, chat }: { colors: Colors; subscriptions?: number; chat?: string }) {
   const [offsets, setOffsets] = useState(firstPage);
-  const query = experimental_useRpcQuery({ contract, method: "board", input: offsets });
+  const query = experimental_useRpcQuery({ contract, method: "board", input: chat ? { ...offsets, chat } : offsets });
   useWatchRefresh(query.refetch);
   const [showResolved, setShowResolved] = useState(false);
   const data = query.data;

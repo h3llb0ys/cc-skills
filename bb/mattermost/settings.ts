@@ -16,6 +16,10 @@ export const headerModeLabels: Record<HeaderMode, string> = {
   combined: "Подписки и важное", count: "Счётчик подписок", important: "Только важное", off: "Скрыть",
 };
 
+export const widgetLayouts = ["context", "single", "channel"] as const;
+export type WidgetLayout = typeof widgetLayouts[number];
+export const widgetLabels = { context: "С контекстом", single: "Одна строка", channel: "По каналам" };
+
 export const listLayouts = ["flat", "status", "thread"] as const;
 export type ListLayout = typeof listLayouts[number];
 export const listLayoutLabels: Record<ListLayout, string> = {

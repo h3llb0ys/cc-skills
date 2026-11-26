@@ -9,6 +9,7 @@ import { SidebarOverlay } from "./components/sidebar-badges";
 import { mountSidebarRows } from "./hooks/sidebar-rows";
 import { SidebarSettings } from "./components/sidebar-settings";
 import { PanelSidebar } from "./components/panel-sidebar";
+import { WidgetLayoutSettings } from "./components/widget-layout";
 import { ListLayoutSettings } from "./components/list-layout-settings";
 import { Widget } from "./components/inbox";
 import "../shared-ui/color-palette.css";
@@ -18,6 +19,7 @@ export default definePluginApp(app => {
   app.contentScripts.register({ id: "sidebar-watches", mount: mountSidebarRows });
   app.slots.experimental_appOverlay({ id: "sidebar-watches", component: SidebarOverlay });
   app.slots.experimental_appOverlay({ id: "message-links", component: MessageLinks });
+  app.slots.settingsSection({ id: "widget-layout", title: "Виджет в треде", component: WidgetLayoutSettings });
   app.slots.settingsSection({ id: "list-layout", title: "Список подписок", component: ListLayoutSettings });
   app.slots.settingsSection({ id: "sidebar-badges", title: "Бейджи в списке тредов", component: SidebarSettings });
   app.slots.settingsSection({ id: "connection", title: "Подключение к Mattermost", component: ConnectionSettings });

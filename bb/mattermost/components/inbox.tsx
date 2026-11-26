@@ -4,31 +4,18 @@ import { contract, defaults, type Summary } from "../contract";
 import { Marker } from "./status";
 import { useSubscriptions, useWatchRefresh } from "../hooks/use-subscriptions";
 import { checkTime } from "../time";
-import { ReplyDraft } from "./reply-draft";
+import { SummaryContent, type OpenSummary } from "./summary-content";
 import { WatchProgress } from "./watch-progress";
-import { OpenSource, sourceBase, usePreferredLink } from "./open-source";
+import { Board } from "./board";
+import { useWidgetLayout } from "./widget-layout";
 import { SubscriptionList } from "./subscriptions";
-
-type OpenSummary = Summary & { body: string; draft: string };
-
-function SummaryLink({ url }: { url: string }) {
-  const { link, loading } = usePreferredLink(url);
-  return loading ? <span>{url}</span> : <a {...link}>{url}</a>;
-}
-
-function SummaryBody({ body, url }: { body: string; url: string }) {
-  const base = sourceBase(url);
-  return <p className="mm-summary-body">{body.split(/(https:\/\/[^\s<>)\]]+)/g).map((part, i) =>
-    !part.startsWith("https://") ? part : base && sourceBase(part) === base ? <SummaryLink key={i} url={part} />
-      : <a key={i} href={part} target="_blank" rel="noopener noreferrer">{part}</a>
-  )}</p>;
-}
 
 function Inbox({ threadId }: { threadId: string }) {
   const rpc = useRpc<typeof contract>();
   const nav = useBbNavigate();
   const watches = useSubscriptions();
-  const [page, setPage] = useState<"history" | "subscriptions">("subscriptions");
+  const layout = useWidgetLayout();
+  const [page, setPage] = useState<"history" | "subscriptions" | "incoming">("subscriptions");
   const [cursors, setCursors] = useState<number[]>([]);
   const before = cursors[cursors.length - 1];
   const feed = experimental_useRpcQuery({ contract, method: "inbox", input: before ? { chat: threadId, before } : { chat: threadId } });
@@ -69,20 +56,17 @@ function Inbox({ threadId }: { threadId: string }) {
         {own.some(w => w.processing_pending) && " · Есть подписки в обработке"}</small>}</div>
       <nav aria-label="Mattermost в этом треде">
         <button aria-pressed={page === "subscriptions"} disabled={loading} onClick={() => navigate("subscriptions")}>Подписки · {own.length}</button>
+        <button aria-pressed={page === "incoming"} disabled={loading} onClick={() => navigate("incoming")}>Входящие</button>
         <button aria-pressed={page === "history"} disabled={loading} onClick={() => navigate("history")}>История сводок</button>
       </nav></header>
     {error && <p role="alert">{error}</p>}
     {(watches.error || feed.error) && <p role="alert">Не удалось обновить данные. <button onClick={() => { void watches.refetch(); void feed.refetch(); }}>Повторить</button></p>}
     {detail ? <article className="mm-event">{meta(detail)}<strong>{detail.headline}</strong>
-      <SummaryBody body={detail.body} url={detail.url} />
-      <OpenSource watch={{ url: detail.url, title: detail.headline,
-        source_link_blocked: source?.source_link_blocked, source_problem: source?.source_problem }} />
-      {detail.draft && <details><summary>Черновик ответа</summary>
-        <ReplyDraft url={detail.url} text={edits[detail.id] ?? detail.draft}
-          update={text => setEdits({ ...edits, [detail.id]: text })} />
-      </details>}
+      <SummaryContent detail={detail} source={source ?? undefined} draft={edits[detail.id]}
+        update={text => setEdits({ ...edits, [detail.id]: text })} />
       <button onClick={() => setDetail(null)}>← Назад</button>
-    </article> : page === "subscriptions" ? <SubscriptionList query={watches} threadId={threadId} /> : <>
+    </article> : page === "subscriptions" ? <SubscriptionList query={watches} layout={layout.data ?? "context"} threadId={threadId} onOpenSummary={id => { navigate("history"); return open(id); }} /> : page === "incoming" ?
+      <Board colors={colors} subscriptions={own.length} chat={threadId} /> : <>
       {!!data?.unread && <small>Непрочитано: {data.unread}</small>}
       {data?.child && <button onClick={() => nav.toThread(data.child!)}>Открыть сабтред сводок ↗</button>}
       {data?.rows.map(s => <button className="mm-history-row" key={s.id} disabled={loading} onClick={() => void open(s.id)}>

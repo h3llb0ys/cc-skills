@@ -1,5 +1,5 @@
 .mm-ui { color:var(--foreground); font:inherit; font-size:13px }
-.mm-panel { padding:16px; max-width:920px; margin:auto }
+.mm-panel { box-sizing:border-box; width:100%; min-width:0; max-width:1060px; margin:0 auto; padding:clamp(12px, 2.5%, 28px); container-type:inline-size }
 .mm-widget { border-left:2px solid var(--border); margin:4px 0; padding-left:8px }
 .mm-ui header,.mm-line,.mm-tabs,.mm-actions,.mm-title { display:flex; align-items:center; gap:6px }
 .mm-ui header { justify-content:space-between; padding-bottom:5px }
@@ -116,3 +116,73 @@
 .mm-list-indicator i { width:7px; height:7px; border-radius:50% }
 .mm-list-indicator svg { width:13px; height:13px }
 .mm-list-preview { max-width:290px; border:1px solid var(--border); border-radius:6px; background:var(--card) }
+
+.mm-item { border:1px solid var(--border); border-radius:7px; background:var(--card); padding:6px 10px; margin:6px 0 }
+.mm-result { min-height:26px; border-top:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:4px 8px; color:var(--muted-foreground); font-size:12px }
+.mm-result button,.mm-destination > button { color:var(--brand,var(--foreground)) }
+.mm-result-detail,.mm-destination { display:grid; justify-items:start; gap:5px }
+.mm-result-detail { padding:8px 0 }
+.mm-result-detail .mm-summary-body { white-space:pre-wrap; overflow-wrap:anywhere }
+.mm-destination small { color:var(--muted-foreground) }
+.mm-segment { display:inline-flex; gap:2px; padding:2px; border-radius:6px; background:var(--muted) }
+.mm-segment [aria-pressed=true] { background:var(--card); box-shadow:var(--shadow-xs); font-weight:600 }
+@container (max-width:440px) { .mm-item .mm-line { flex-wrap:wrap } .mm-item .mm-main { flex-basis:100% } }
+.mm-item { container-type:inline-size }
+
+.mm-compact { border-top:1px solid var(--border) }
+.mm-compact-line { display:flex; align-items:center; gap:6px; min-width:0; height:34px }
+.mm-compact-kind,.mm-compact-line small,.mm-demo-actions { color:var(--muted-foreground); flex:none }
+.mm-compact-line small { font-variant-numeric:tabular-nums; max-width:36%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis }
+.mm-compact-name { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:550; display:block }
+.mm-compact-line .mm-icon,.mm-compact-line .mm-open-group { height:24px }
+.mm-compact-line .mm-icon { width:24px }
+.mm-compact-line > .mm-icon { opacity:0 }
+.mm-compact:hover .mm-icon,.mm-compact:focus-within .mm-icon,.mm-compact[data-suspended=true] .mm-icon { opacity:1 }
+@media (hover:none) { .mm-compact-line > .mm-icon { opacity:1 } }
+.mm-compact[data-suspended=true] .mm-compact-line { color:var(--muted-foreground) }
+.mm-compact-dot { width:7px; height:7px; border-radius:50%; flex:none }
+.mm-compact-note { display:flex; align-items:center; gap:6px; min-width:0; margin:0 0 3px 18px; font-size:11px; color:var(--muted-foreground) }
+.mm-compact-note span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.mm-compact-note button { flex:none }
+.mm-actions-menu [role=menuitem] { padding:5px 8px; cursor:pointer; border-radius:4px }
+.mm-actions-menu [data-disabled] { opacity:.5 }
+.mm-channel-group > .mm-compact { margin-left:14px }
+.mm-channel-group > summary { cursor:pointer }
+.mm-demo-actions { display:inline-flex; align-items:center; gap:4px }
+.mm-demo-actions svg { width:14px; height:14px }
+.mm-channel-head { display:flex; align-items:center; gap:2px }
+.mm-channel-head > button svg { width:12px; height:12px }
+.mm-channel-head > .mm-compact { min-width:0; flex:1 }
+
+/* Full-page navigation and lists. */
+.mm-panel > header { min-height:34px; gap:12px; padding:0 }
+.mm-panel > header h2 { font-size:21px; letter-spacing:-.025em }
+.mm-panel > .mm-tabs { gap:12px; margin:10px 0; border-bottom:1px solid var(--border) }
+.mm-panel > .mm-tabs button:not(.mm-main):not(.cc-color-palette-swatch) { margin:0 0 -1px; padding:6px 2px; border-radius:0; border-bottom:2px solid transparent; color:var(--muted-foreground) }
+.mm-panel > .mm-tabs button[aria-pressed=true]:not(.mm-main):not(.cc-color-palette-swatch) { border-bottom-color:var(--brand,var(--foreground)); background:transparent; color:var(--foreground) }
+.mm-panel .mm-board-section h3 { display:flex; align-items:center; gap:6px; margin:12px 0 4px }
+.mm-panel .mm-board-section h3 small { font-variant-numeric:tabular-nums }
+.mm-panel .mm-board-card { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:12px; row-gap:2px; margin:0; padding:8px 2px; border:0; border-top:1px solid var(--border); border-radius:0 }
+.mm-panel .mm-board-title,.mm-panel .mm-board-meta { display:contents }
+.mm-panel .mm-board-title > :first-child { grid-area:1/1; justify-self:start }
+.mm-panel .mm-board-title time { grid-area:3/2; justify-self:end }
+.mm-panel .mm-board-meta > small { grid-area:3/1; overflow-wrap:anywhere }
+.mm-panel .mm-board-meta > .mm-actions { grid-area:1/2; justify-self:end; flex-wrap:nowrap }
+.mm-panel .mm-board-meta .mm-open-group { padding:0; gap:0; height:24px }
+.mm-panel .mm-board-card > p { grid-area:2/1/3/-1; line-height:1.45; margin:0 }
+.mm-panel .mm-board-card > :is(.mm-reply,[role=alert]) { grid-column:1/-1 }
+.mm-panel .mm-item { margin:0; padding:7px 2px; background:transparent; border:0; border-top:1px solid var(--border); border-radius:0 }
+.mm-panel .mm-item .mm-main { display:grid; gap:2px; padding:0 }
+.mm-panel .mm-title { min-width:0 }
+.mm-panel .mm-title strong { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; max-width:100% }
+.mm-panel .mm-result { min-height:20px; border:0; justify-content:flex-start; gap:8px; font-size:11px }
+.mm-panel .mm-item .mm-icon,.mm-panel .mm-item .mm-open-group { height:26px }
+.mm-panel .mm-item .mm-icon { width:26px }
+.mm-panel .mm-icon > svg { max-width:15px }
+.mm-panel details > summary { background:transparent; font-weight:600 }
+@container (max-width:440px) {
+  .mm-panel .mm-item .mm-line { flex-wrap:wrap; gap:4px }
+  .mm-panel .mm-item .mm-main { flex-basis:100% }
+  .mm-panel .mm-board-card:has(.mm-actions > button) .mm-board-meta > .mm-actions { grid-area:4/1/5/-1; justify-self:start }
+  .mm-panel .mm-board-card:has(.mm-actions > button) .mm-board-title > :first-child { grid-column:1/-1 }
+}

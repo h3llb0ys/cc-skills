@@ -62,8 +62,16 @@ def initial_review_pending(state):
 def public(state):
     data = {k: v for k, v in state.items()
             if k in ("id", "url", "platform", "chat", "owner", "interval", "rule", "push",
-                     "until", "schedule", "setup_pending", "paused", "suspended", "timezone", "push_problem", "source_problem", "dispatch_problem", "delivery_problem", "last_checked_at", "last_processed_at", "destination", "kind", "channel", "title", "draft", "status")}
+                     "until", "schedule", "setup_pending", "paused", "suspended", "timezone", "push_problem", "source_problem", "dispatch_problem", "delivery_problem", "last_checked_at", "last_processed_at", "last_check_quiet", "destination", "kind", "channel", "title", "draft", "status")}
     data["processing_pending"] = not state["paused"] and not state.get("suspended") and bool(state.get("batch") or state.get("unprepared") or initial_review_pending(state))
+    if state.get("channel_scan"):
+        data["review_stage"] = "reading"
+    elif state.get("batch") or state.get("unprepared"):
+        data["review_stage"] = "reviewing"
+    elif initial_review_pending(state):
+        data["review_stage"] = "queued"
+    if "last_review_notified" in state:
+        data["last_review_notified"] = state["last_review_notified"]
     if state.get("source_problem"):
         data["source_link_blocked"] = source_link_blocked(state)
     return data
@@ -109,7 +117,7 @@ def worker_prompt(state):
             "For an expired cookie send one service notice. Otherwise resolve without a message. "
             "For BB actionable posts also pass --cards-file PATH to resolve. Write a JSON array of "
             "{post_id,status,headline,body,draft} objects. Use a separate card per question, even in a single thread. "
-            "Write a short Russian action title, one sentence about who needs what, and a reply draft only when requested. "
+            "For a question, make the headline its concise Russian wording; for other items use a short action title. Include one sentence about who needs what, and a reply draft only when requested. "
             "Use the ORIGINAL question post ID across updates and resolution, not the newest reply. For resolved or "
             "changed important items inspect board_items in the review. Use --answered for each closed personal question. "
             "Exclude ordinary chatter from cards. Board triage is independent of the chat notification rule. "
@@ -370,7 +378,8 @@ def prepare_batch(db, state, reminder_due):
         state.pop("source_link_blocked", None)
         state["auth_notified"] = False
         current = versions(posts)
-        if current == state["seen"] and not reminder_due and not initial:
+        state["last_check_quiet"] = current == state["seen"] and not reminder_due and not initial
+        if state["last_check_quiet"]:
             return False
         snapshot = dict(initial_review=initial, posts=client.render_posts(team, posts, {me["id"]: me["username"]}),
                         watching_as={"id": me["id"], "username": me["username"]})
@@ -548,23 +557,30 @@ def send_pending_push(db, state):
 def handle(args):
     with closing(connect(readonly=args.action == "review")) as db, db:
         if args.action == "watch" and args.url == "list":
-            rows = db.execute("""SELECT w.data, s.child FROM watches w LEFT JOIN summary_threads s
+            rows = db.execute("""SELECT w.data, s.child, last.id, last.created, last.opened FROM watches w
+                LEFT JOIN summaries last ON last.id=(
+                    SELECT ss.summary FROM summary_sources ss JOIN summaries h ON h.id=ss.summary
+                    WHERE ss.watch=w.id AND h.chat=json_extract(w.data,'$.chat')
+                    ORDER BY ss.summary DESC LIMIT 1)
+                LEFT JOIN summary_threads s
                 ON json_extract(w.data, '$.destination') = 'shared' AND s.chat = json_extract(w.data, '$.chat')
                 WHERE ? IS NULL OR json_extract(w.data, '$.platform') = ?""", (args.platform, args.platform))
             watches = []
             now = time.time()
-            for data, child in rows:
+            for data, child, summary_id, created, opened in rows:
                 watch = public(json.loads(data))
                 if ended(watch, now):
                     watch.update(paused=True, processing_pending=False)
                 if child:
                     watch["summary_thread"] = child
+                if summary_id:
+                    watch["latest_summary"] = {"id": summary_id, "created": created, "opened": bool(opened)}
                 watches.append(watch)
             return watches
         if args.action == "board":
             db.execute("BEGIN")
             now = int(time.time())
-            return {status: board.listing(db, status, getattr(args, status), now) for status in board.SIGNALS}
+            return {status: board.listing(db, status, getattr(args, status), now, args.chat) for status in board.SIGNALS}
         if args.action == "inbox":
             return inbox.listing(db, args.chat, args.before)
         if args.action == "review":
@@ -621,7 +637,8 @@ def handle(args):
                     return public(state)
             else:
                 # A moved watch may still own the original ID used by its scheduler.
-                occupied = db.execute("SELECT 1 FROM watches WHERE id=?", (binding,)).fetchone()
+                occupied = db.execute("""SELECT 1 FROM watches WHERE id=?
+                    UNION ALL SELECT 1 FROM summary_sources WHERE watch=? LIMIT 1""", (binding, binding)).fetchone()
                 key = uuid.uuid4().hex[:20] if occupied else binding
                 state = dict(id=key, binding=binding, seen={}, initial_review_pending=True, schedule=None, auth_notified=False, paused=False,
                              window_start=posts[0]["create_at"] if posts else now * 1000)
@@ -850,6 +867,7 @@ def handle(args):
                 else:
                     state.pop("delivery_problem", None)
             if not state["auth"]:
+                state["last_review_notified"] = bool(message)
                 state["last_processed_at"] = int(time.time())
                 state.pop("initial_review_pending", None)
             state.pop("batch", None)
