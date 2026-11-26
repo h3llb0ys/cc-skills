@@ -2,7 +2,7 @@ import { useState } from "react";
 import { experimental_Icon as Icon, useRpc } from "@get-bb/plugin-sdk/app";
 import { contract, type Watch } from "../contract";
 
-const outcomes = { busy: "Проверка уже идёт", reviewing: "Готовится сводка", quiet: "Новых сообщений нет" };
+const outcomes = { busy: "Проверка уже идёт", reviewing: "Идёт разбор сообщений", quiet: "Новых сообщений нет" };
 
 export function CheckWatch({ watch }: { watch: Watch }) {
   const rpc = useRpc<typeof contract>();

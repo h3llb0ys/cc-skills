@@ -1,5 +1,5 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
-import { headerModes } from "./settings";
+import { headerModes, listLayouts } from "./settings";
 import { z } from "zod";
 
 export const labels = { answer: "Ждут ответа", attention: "Стоит посмотреть", resolved: "Решено" } as const;
@@ -47,6 +47,8 @@ const card = z.object({ id: cursor, revision: cursor, headline: z.string(), body
 export type BoardCard = z.infer<typeof card>;
 const section = z.object({ total: z.number().int().nonnegative(), rows: z.array(card) });
 export const contract = defineRpcContract({
+  listLayout: { input: z.null(), output: z.enum(listLayouts), tags: () => ["list-layout"] },
+  setListLayout: { input: z.enum(listLayouts), output: z.null() },
   headerMode: { input: z.null(), output: z.enum(headerModes), tags: () => ["header-mode"] },
   setHeaderMode: { input: z.enum(headerModes), output: z.null() },
   board: { input: z.record(signal, z.number().int().nonnegative()), output: z.record(signal, section) },

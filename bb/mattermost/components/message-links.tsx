@@ -1,9 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { experimental_useRpcQuery, useBbNavigate, useSettings } from "@get-bb/plugin-sdk/app";
 import { contract } from "../contract";
-import { preferredSourceTarget, sourceLink } from "./open-source";
-
-const sourcePath = /\/[\w.-]+\/(?:pl\/[a-z0-9]{26}|channels\/[\w.-]+)\/?$/;
+import { preferredSourceTarget, sourceBase, sourceLink } from "./open-source";
 
 export function MessageLinks() {
   const settings = useSettings();
@@ -14,14 +12,14 @@ export function MessageLinks() {
   const pending = useRef(new Map<HTMLAnchorElement, string>());
   useLayoutEffect(() => {
     const base = server && URL.canParse(server) ? new URL(server) : null;
-    const prefix = base?.pathname.replace(/\/$/, "") ?? "";
+    const trustedBase = base?.href.replace(/\/$/, "");
     function follow(event: MouseEvent) {
       if (event.defaultPrevented || event.button !== (event.type === "auxclick" ? 1 : 0)) return;
       const anchor = event.target instanceof Element
         ? event.target.closest<HTMLAnchorElement>("[data-message-column] [data-markdown-preview] a[href]") : null;
       if (!anchor || anchor.protocol !== "https:" || anchor.username || anchor.password) return;
-      const route = anchor.pathname.match(sourcePath);
-      if (!route || (base && (anchor.origin !== base.origin || anchor.pathname.slice(0, route.index) !== prefix))) return;
+      const origin = sourceBase(anchor.href);
+      if (!origin || (base && origin !== trustedBase)) return;
       if (waiting) {
         // A visible old message can be clicked before BB loads the setting.
         // Replay the ordinary click once its destination is known.

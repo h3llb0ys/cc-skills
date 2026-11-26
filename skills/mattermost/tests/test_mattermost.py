@@ -225,8 +225,39 @@ class WatchTests(unittest.TestCase):
                         "--push", "blocker"]
         self.key = self.invoke(*self.options)["id"]
 
+        # The existing-watch scenarios start after the original question was reviewed.
+        self.invoke("tick", self.key)
+        self.invoke("resolve", self.key, self.invoke("review", self.key)["token"])
+        self.now += 300
+        self.calls.reset_mock()
+        self.client.reset_mock()
+
     def invoke(self, *args):
         return watches.handle(self.parser.parse_args(args))
+
+    def test_manual_check_bootstraps_unprocessed_legacy_thread_and_only_once(self):
+        self.rows.append(post(REPLY, 3, ROOT))
+        opts = self.options.copy()
+        opts[opts.index("target")] = "new-chat"
+        key = self.invoke(*opts, "--new")["id"]
+        with closing(watches.connect()) as db, db:
+            state = json.loads(db.execute("SELECT data FROM watches WHERE id=?", (key,)).fetchone()[0])
+            state.pop("initial_review_pending")
+            state["seen"] = watches.versions(self.rows)
+            watches.save(db, key, state)
+        self.assertEqual(self.invoke("check", key)["outcome"], "reviewing")
+        review = self.invoke("review", key)
+        self.assertTrue(review["initial_review"])
+        self.assertEqual([p["id"] for p in review["posts"]], [ROOT, REPLY])
+        self.assertEqual(review["changed"], [ROOT, REPLY])
+        self.assertEqual(self.invoke("check", key)["outcome"], "busy")
+        self.invoke("resolve", key, review["token"])
+        self.assertEqual(self.invoke("check", key)["outcome"], "quiet")
+        self.rows.append(post(OTHER, 4, ROOT))
+        self.invoke("check", key)
+        review = self.invoke("review", key)
+        self.assertFalse(review["initial_review"])
+        self.assertEqual(review["changed"], [OTHER])
 
     def test_create_timeout_leaves_no_watch_and_allows_other_writes(self):
         def offline(_):
@@ -257,7 +288,7 @@ class WatchTests(unittest.TestCase):
         def checked():
             return self.invoke("watch", "list")[0]["last_checked_at"]
 
-        self.assertEqual(checked(), self.now)
+        self.assertEqual(checked(), self.now - 300)
         self.now += 10
         self.invoke("tick", self.key)
         success = self.now
@@ -305,6 +336,143 @@ class WatchTests(unittest.TestCase):
             self.invoke("resolve", self.key, token, "--status", "answer")
         self.assertEqual(self.invoke("watch", "list", "--platform", "orca"), [])
 
+    def start_partial_channel(self):
+        self.client.channel.return_value = ("team", dict(id=CHANNEL, name="qa", display_name="QA"))
+        self.client.link.return_value = ("team", "qa")
+        self.client.api.return_value = {"id": OTHER, "username": "owner", "name": "qa"}
+        self.client.posts_by_channel_id.return_value = ([post(REPLY, 3, ROOT)], False)
+        opts = self.options.copy()
+        opts[1] = "https://mm.example/team/channels/qa"
+        key = self.invoke(*opts, "--new")["id"]
+        cursor = {"before": REPLY, "page": 0, "last_ids": [REPLY]}
+        self.client.channel_page.return_value = ([post(REPLY, 3, ROOT)], cursor)
+        with patch.object(watches.time, "monotonic", side_effect=[0, 21]):
+            self.assertEqual(self.invoke("check", key)["outcome"], "reviewing")
+        self.assertEqual(self.invoke("review", key), {"idle": True})
+        self.calls.assert_not_called()
+        return key, cursor
+
+    def test_channel_scan_resumes_after_network_failure_and_compacts_the_snapshot(self):
+        key, cursor = self.start_partial_channel()
+        self.client.channel_page.side_effect = TimeoutError("offline")
+        self.now += 60  # Continue at the next heartbeat, even with a five-minute interval.
+        self.invoke("tick", key)
+        self.client.channel_page.assert_called_with(CHANNEL, cursor)
+        self.client.channel_page.side_effect = None
+        self.client.channel_page.return_value = ([post(ROOT, 1)], None)
+        self.assertEqual(self.invoke("check", key)["outcome"], "reviewing")
+        self.client.channel_page.assert_called_with(CHANNEL, cursor)
+        batch = self.invoke("review", key)
+        self.assertEqual(batch["changed"], [ROOT, REPLY])
+        self.assertTrue(batch["initial_review"])
+        self.invoke("resolve", key, batch["token"])
+        with closing(watches.connect()) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM channel_scan_posts").fetchone()[0], 0)
+
+    def test_reminder_retaining_large_initial_window_can_resume_with_old_edits(self):
+        self.rows = [post(str(i).zfill(26), i) for i in range(1, 76)]
+        self.client.channel.return_value = ("team", dict(id=CHANNEL, name="qa", display_name="QA"))
+        self.client.link.return_value = ("team", "qa")
+        self.client.api.return_value = {"id": OTHER, "username": "owner", "name": "qa"}
+        self.client.posts_by_channel_id.return_value = (self.rows[-50:], False)
+        self.client.channel_page.return_value = (self.rows, None)
+        opts = self.options.copy()
+        opts[1] = "https://mm.example/team/channels/qa"
+        key = self.invoke(*opts, "--new")["id"]
+        self.invoke("tick", key)
+        first = self.invoke("review", key)
+        deadline = self.now + 600
+        self.invoke("resolve", key, first["token"], "--recheck-at", client.timestamp(deadline * 1000),
+                    "--awaiting", self.rows[0]["id"])
+        self.now += 300
+        self.rows[0]["edit_at"] = self.now * 1000
+        cursor = {"before": self.rows[-30]["id"]}
+        self.client.channel_page.return_value = (self.rows[-30:], cursor)
+        with patch.object(watches.time, "monotonic", side_effect=[0, 21]):
+            self.invoke("tick", key)
+        self.assertTrue(self.invoke("review", key)["idle"])
+        self.now += 60
+        self.client.channel_page.return_value = (self.rows[:-30], None)
+        self.invoke("tick", key)
+        self.client.channel_page.assert_called_with(CHANNEL, cursor)
+        changed = self.invoke("review", key)
+        self.assertFalse(changed["initial_review"])
+        self.assertEqual(changed["changed"], [self.rows[0]["id"]])
+        self.assertIn(self.rows[0]["id"], changed["awaiting"])
+        self.invoke("resolve", key, changed["token"])
+
+        # A deletion during the delay clears the pinned question at its deadline.
+        removed = self.rows.pop(0)["id"]
+        self.now = deadline
+        self.client.channel_page.return_value = (self.rows, None)
+        self.invoke("tick", key)
+        due = self.invoke("review", key)
+        self.assertEqual(due["removed_questions"], [removed])
+        self.assertEqual(due["recheck_at"], deadline)
+        self.invoke("resolve", key, due["token"])
+        self.assertEqual(self.invoke("check", key)["outcome"], "quiet")
+        self.client.posts_by_channel_id.assert_called_with(CHANNEL, 26, None)
+
+    def test_interrupted_process_resumes_at_the_last_committed_page(self):
+        key, _ = self.start_partial_channel()
+        cursor = {"before": ROOT}
+        self.client.channel_page.side_effect = [([post(ROOT, 1)], cursor), KeyboardInterrupt()]
+        with self.assertRaises(KeyboardInterrupt):
+            self.invoke("check", key)
+        self.client.channel_page.side_effect = None
+        self.client.channel_page.return_value = ([], None)
+        self.invoke("check", key)
+        self.client.channel_page.assert_called_with(CHANNEL, cursor)
+        self.assertEqual(self.invoke("review", key)["changed"], [ROOT, REPLY])
+
+    def test_pause_during_initial_page_read_discards_partial_history(self):
+        key, _ = self.start_partial_channel()
+        with closing(watches.connect()) as db, db:
+            state = json.loads(db.execute("SELECT data FROM watches WHERE id=?", (key,)).fetchone()[0])
+            state["schedule"] = "job"
+            watches.save(db, key, state)
+        def pause_during_request(*_):
+            self.invoke("pause", key)
+            return [post(ROOT, 1)], None
+        self.client.channel_page.side_effect = pause_during_request
+        self.assertEqual(self.invoke("check", key)["outcome"], "busy")
+        with closing(watches.connect()) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM channel_scan_posts").fetchone()[0], 0)
+        self.assertEqual(self.invoke("review", key), {"idle": True})
+
+    def test_channel_scan_discards_pages_on_account_switch_and_deletion(self):
+        key, _ = self.start_partial_channel()
+        self.client.api.return_value = {"id": "new-user", "username": "new", "name": "qa"}
+        self.client.channel_page.return_value = ([post(ROOT, 1)], {"before": ROOT})
+        with patch.object(watches.time, "monotonic", side_effect=[0, 21]):
+            self.invoke("check", key)
+        self.client.channel_page.assert_called_with(CHANNEL, {})
+        with closing(watches.connect()) as db:
+            self.assertEqual(db.execute("SELECT post FROM channel_scan_posts").fetchall(), [(ROOT,)])
+        self.invoke("unwatch", key)
+        with closing(watches.connect()) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM channel_scan_posts").fetchone()[0], 0)
+
+    def test_initial_channel_checks_older_questions_then_returns_to_incremental_window(self):
+        self.rows = [post(str(i).zfill(26), i) for i in range(1, 76)]
+        self.client.channel.return_value = ("team", dict(id=CHANNEL, name="qa", display_name="QA"))
+        self.client.link.return_value = ("team", "qa")
+        self.client.api.side_effect = lambda path: ({"id": OTHER, "username": "owner"} if path == "users/me" else {"name": "qa"})
+        def channel_posts(channel, since, limit):
+            rows = [p for p in self.rows if p["create_at"] >= since]
+            return (rows[-limit:] if limit else rows), bool(limit and len(rows) > limit)
+        self.client.posts_by_channel_id.side_effect = channel_posts
+        self.client.channel_page.return_value = (self.rows, None)
+        opts = self.options.copy()
+        opts[1] = "https://mm.example/team/channels/qa"
+        key = self.invoke(*opts, "--new")["id"]
+        self.invoke("tick", key)
+        initial = self.invoke("review", key)
+        self.assertEqual(initial["changed"], [p["id"] for p in self.rows])
+        self.invoke("resolve", key, initial["token"])
+        self.assertEqual(self.invoke("check", key)["outcome"], "quiet")
+        self.client.posts_by_channel_id.assert_called_with(CHANNEL, 26, None)
+
     def test_channel_baseline_followed_by_more_than_one_page_of_messages(self):
         self.client.channel.return_value = ("team", dict(id=CHANNEL, name="qa", display_name="QA"))
         self.client.link.return_value = ("team", "qa")
@@ -315,6 +483,7 @@ class WatchTests(unittest.TestCase):
                 return {"name": "renamed"}
             return next(p for p in self.rows if path == "posts/" + p["id"])
         self.client.api.side_effect = read
+        self.client.channel_page.return_value = (self.rows, None)
         self.client.posts_by_channel_id.side_effect = lambda channel_id, since, limit: (
             [p for p in self.rows if p["create_at"] >= since], False)
         opts = self.options.copy()
@@ -323,7 +492,11 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(state["kind"], "channel")
         key = state["id"]
         self.invoke("tick", key)
-        self.calls.assert_not_called()
+        initial = self.invoke("review", key)
+        self.assertTrue(initial["initial_review"])
+        self.assertEqual(initial["changed"], [ROOT])
+        self.client.channel_page.assert_called_once_with(CHANNEL, {})
+        self.invoke("resolve", key, initial["token"])
         self.rows.extend(post(str(i).zfill(26), i) for i in range(2, 265))
         self.now += 300
         self.invoke("tick", key)
@@ -754,7 +927,10 @@ class WatchTests(unittest.TestCase):
         options[3] = "orca"
         key = self.invoke(*options)["id"]
         self.assertNotEqual(key, self.key)
-        self.assertEqual(self.invoke("tick", key), 1)
+        self.assertEqual(self.invoke("tick", key), 0)
+        initial = self.invoke("review", key)
+        self.assertTrue(initial["initial_review"])
+        self.invoke("resolve", key, initial["token"])
         self.assertEqual(self.invoke("tick", key), 1)
         self.rows.append(post(REPLY, 3, ROOT))
         self.now += 300
@@ -1010,6 +1186,15 @@ class WatchTests(unittest.TestCase):
         self.invoke("pause", self.key)
         shared = self.invoke("board")["answer"]["rows"][0]
         self.assertEqual((shared["chat"], shared["draft"], shared["opened"]), ("other-chat", "", True))
+
+        self.invoke("resume", self.key)
+        self.invoke("edit", self.key, "--interval", "5", "--rule", "QA", "--draft",
+                    "--until", client.timestamp((self.now + 10) * 1000))
+        self.now += 10  # Deadline passed; the scheduler has not marked this source ended yet.
+        shared = self.invoke("board")["answer"]["rows"][0]
+        self.assertEqual((shared["chat"], shared["draft"]), ("other-chat", ""))
+        self.invoke("unwatch", observer)
+        self.assertEqual(self.invoke("board")["answer"], {"total": 0, "rows": []})
 
     def test_legacy_thread_closes_without_chat_notification(self):
         with closing(watches.connect()) as db, db:

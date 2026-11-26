@@ -99,3 +99,20 @@
 .mm-item[data-suspended=true] > .mm-line, .mm-context-item[data-suspended=true] > .mm-context-title,
 .mm-badge-details li[data-suspended=true], .mm-paused-marker { color:var(--muted-foreground) }
 .mm-paused-marker i { background:currentColor }
+
+.mm-watch-list { box-sizing:border-box; padding:6px; min-width:0; color:var(--foreground); font:inherit; font-size:13px }
+.mm-watch-list header { display:flex; align-items:center; justify-content:flex-start; gap:6px; padding:4px 6px 7px; border-bottom:1px solid var(--border) }
+.mm-watch-list small,.mm-list-kind,.mm-watch-list summary,.mm-watch-list li[data-muted=true] { color:var(--muted-foreground) }
+.mm-watch-list ul { list-style:none; margin:3px 0; padding:0 }
+.mm-watch-list .mm-list-row { display:flex; align-items:center; gap:7px; width:100%; min-width:0; padding:4px 6px; border-radius:4px; text-align:left; color:inherit; text-decoration:none; font:inherit }
+.mm-watch-list :is(a,button).mm-list-row:hover { background:var(--muted) }
+.mm-watch-list :is(a,button,summary):focus-visible { outline:2px solid var(--ring); outline-offset:-2px }
+.mm-list-text { display:grid; min-width:0; flex:1 }
+.mm-list-text > * { white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+.mm-list-text strong { font-size:12px; font-weight:550 }
+.mm-watch-list small,.mm-watch-list summary { font-size:11px }
+.mm-watch-list summary { cursor:pointer; padding:4px 5px; background:transparent }
+.mm-list-indicator { display:inline-flex; align-items:center; justify-content:center; min-width:12px }
+.mm-list-indicator i { width:7px; height:7px; border-radius:50% }
+.mm-list-indicator svg { width:13px; height:13px }
+.mm-list-preview { max-width:290px; border:1px solid var(--border); border-radius:6px; background:var(--card) }

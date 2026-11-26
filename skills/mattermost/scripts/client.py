@@ -222,29 +222,34 @@ class Client:
         return team, posts, truncated
 
     def posts_by_channel_id(self, channel_id, since, limit):
-        path = "channels/" + mmid(channel_id) + "/posts"
-        params = {"per_page": min(limit + 1, 200) if limit else 200, "skipFetchThreads": "true"}
+        size = min(limit + 1, 200) if limit else 200
+        cursor = {}
         found = {}
-        last_ids = None
         while limit is None or len(found) <= limit:
-            page = self.api(path, params=params)
-            ids = page["order"]
-            rows = [page["posts"][key] for key in ids]
+            rows, cursor = self.channel_page(channel_id, cursor, size)
             found.update((p["id"], p) for p in rows if p["create_at"] >= since)
-            if len(ids) < params["per_page"] or rows[-1]["create_at"] < since:
+            if cursor is None or rows[-1]["create_at"] < since:
                 break
-            if ids == last_ids:
-                raise ValueError("Mattermost channel pagination did not advance")
-            last_ids = ids
-            # Mattermost's before cursor excludes every post at its timestamp.
-            # Overlap the oldest millisecond so messages sharing it reach the next page.
-            anchor = next((p for p in reversed(rows) if p["create_at"] > rows[-1]["create_at"]), None)
-            if anchor:
-                params.update(before=anchor["id"], page=0)
-            else:
-                params["page"] = params.get("page", 0) + 1
         posts = ordered(found.values())
         return posts[-limit:] if limit else posts, limit is not None and len(posts) > limit
+
+    def channel_page(self, channel_id, cursor, size=200):
+        params = {"per_page": size, "skipFetchThreads": "true"}
+        if cursor.get("before"):
+            params["before"] = cursor["before"]
+        if cursor.get("page"):
+            params["page"] = cursor["page"]
+        data = self.api("channels/" + mmid(channel_id) + "/posts", params=params)
+        rows = [data["posts"][key] for key in data["order"]]
+        if len(rows) < size:
+            return rows, None
+        if data["order"] == cursor.get("last_ids"):
+            raise ValueError("Mattermost channel pagination did not advance")
+        # "before" excludes every post at its timestamp. Overlap the oldest
+        # millisecond and use a page offset when all timestamps coincide.
+        anchor = next((p for p in reversed(rows) if p["create_at"] > rows[-1]["create_at"]), None)
+        return rows, {"before": anchor["id"] if anchor else cursor.get("before"),
+                      "page": 0 if anchor else cursor.get("page", 0) + 1, "last_ids": data["order"]}
 
     def around(self, url, before, after):
         team, key = self.link(url, "pl")

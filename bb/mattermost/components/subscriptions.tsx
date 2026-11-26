@@ -8,7 +8,7 @@ import { OpenSource } from "./open-source";
 import { CheckWatch } from "./check-watch";
 import { PauseWatch } from "./pause-watch";
 import { WatchMarker } from "./status";
-import { useSubscriptions } from "../hooks/use-subscriptions";
+import type { useSubscriptions } from "../hooks/use-subscriptions";
 
 type Detail = { kind: "edit" | "remove"; id: string } | { kind: "create"; id?: never } | null;
 
@@ -56,15 +56,10 @@ function FinishSetup({ watch, refresh }: { watch: Watch; refresh: () => Promise<
   </div>;
 }
 
-export function Subscriptions({ threadId, editId }: { threadId: string; editId?: string }) {
-  const query = useSubscriptions();
-  return <SubscriptionList query={query} threadId={threadId} editId={editId} />;
-}
-
-export function SubscriptionList({ query, threadId, editId, grouped = false }: { query: ReturnType<typeof useSubscriptions>; threadId?: string; editId?: string; grouped?: boolean }) {
+export function SubscriptionList({ query, threadId, grouped = false }: { query: ReturnType<typeof useSubscriptions>; threadId?: string; grouped?: boolean }) {
   const nav = useBbNavigate();
   const { threads } = experimental_useSidebarThreads();
-  const [detail, setDetail] = useState<Detail>(editId ? { kind: "edit", id: editId } : null);
+  const [detail, setDetail] = useState<Detail>(null);
   const creating = detail?.kind === "create";
   const rows = (query.data?.watches ?? []).filter(w => !threadId || w.chat === threadId);
   const colors = query.data?.colors ?? defaults;

@@ -183,30 +183,45 @@ it("renders a historical notification with its status and the configured palette
   } finally { rendered.lifecycle.unmount(); }
 });
 
-it("opens the newest unread summary, then history, draft and current-thread settings", async () => {
+it("shows all bound watches first and keeps historical updates, drafts and source links in history", async () => {
   const app = await loadPluginApp(() => import("./app"));
   const w = { id: "a".repeat(20), chat:"target", owner:"p", title:"Своя ветка", url:"https://mm.example/team/pl/abc",
     interval:5, rule:"Уведомляй о QA", until:null, push:null, schedule:null, paused:false, timezone:"UTC" };
-  const item = { id: 1, headline: "Когда обновляется кэш?", source: "Канал", status: "attention", created: 1800000000, url: w.url };
+  const item = { id: 1, headline: "Когда обновляется кэш?", source: "Канал", status: "attention", created: 1800000000, url: "https://mm.example/team/pl/aaaaaaaaaaaaaaaaaaaaaaaaaa" };
   let opened = 0;
   const rendered = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
     composer: { scope: { kind:"thread", threadId:"target" } },
+    settings: { openTarget: "В приложении" },
     rpc: {
-      list: () => ({ watches: [w, { ...w, chat:"other", title:"Чужая ветка" }], colors:{answer:null,attention:null,resolved:null} }),
-      inbox: () => ({ rows:[{...item, opened}], latest: opened ? null : {...item,opened}, unread:1-opened, more:false, child:null }),
-      openSummary: input => { expect(input).toEqual({chat:"target",id:1}); opened=1; return {...item,opened,body:"Вопрос о кэше",draft:"Уточню у команды."}; },
+      list: () => ({ watches: [w, { ...w, id:"b".repeat(20), title:"Новая подписка" }, { ...w, id:"c".repeat(20), chat:"other", title:"Чужая ветка" }], colors:{answer:null,attention:null,resolved:null} }),
+      inbox: () => ({ rows:[{...item, opened},{...item, id:2, headline:"Старая сводка", opened:1}], latest: opened ? null : {...item,opened}, unread:1-opened, more:false, child:null }),
+      openSummary: input => { expect(input).toEqual({chat:"target",id:1}); opened=1; return {...item,opened,body:"Вопрос о кэше https://mm.example/team/pl/bbbbbbbbbbbbbbbbbbbbbbbbbb https://docs.example/page",draft:"Уточню у команды."}; },
     },
   });
   try {
-    fireEvent.click(await rendered.findByText("Открыть сводку →"));
-    await rendered.findByText("Вопрос о кэше");
+    await rendered.findByText("Новая подписка");
+    expect(rendered.getByText("Своя ветка")).toBeTruthy();
+    expect(rendered.queryByText(item.headline)).toBeNull();
+    fireEvent.click(rendered.getByText("История сводок"));
+    await rendered.findByText("Непрочитано: 1");
+    expect(rendered.getByText("Старая сводка")).toBeTruthy();
+    fireEvent.click(rendered.getByText(item.headline));
+    const related = "https://mm.example/team/pl/bbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const relatedLink = await rendered.findByRole("link", { name: related });
+    expect(relatedLink.getAttribute("href")).toBe(related.replace("https:", "mattermost:"));
+    expect(rendered.getByRole("link", { name: "https://docs.example/page" }).getAttribute("href")).toBe("https://docs.example/page");
+    const primary = rendered.getByRole("link", { name: "Открыть в приложении: " + item.headline });
+    expect(primary.getAttribute("href")).toBe("mattermost://mm.example/team/pl/aaaaaaaaaaaaaaaaaaaaaaaaaa");
+    fireEvent.keyDown(rendered.getByRole("button", { name: "Выбрать, где открыть: " + item.headline }), { key: "Enter" });
+    const menu = await rendered.findByRole("menu");
+    expect(menu.querySelector('a[href^="https:"]')?.getAttribute("href")).toBe(item.url);
+    fireEvent.keyDown(menu, { key: "Escape" });
     fireEvent.click(rendered.getByText("Черновик ответа"));
     expect((rendered.getByLabelText("Черновик ответа") as HTMLTextAreaElement).value).toBe("Уточню у команды.");
     fireEvent.click(rendered.getByText("← Назад"));
-    await rendered.findByText("Все сводки просмотрены");
-    fireEvent.click(rendered.getByRole("button", { name: "Сводки" }));
+    await waitFor(() => expect(rendered.queryByText("Непрочитано: 1")).toBeNull());
     await rendered.findByText(item.headline);
-    fireEvent.click(rendered.getByText("Подписки · 1"));
+    fireEvent.click(rendered.getByText("Подписки · 2"));
     const settings = await rendered.findByRole("button", { name: "Настройки: Своя ветка" });
     for (const [label, icon] of [["Выбрать, где открыть: Своя ветка", "ChevronDown"], ["Удалить подписку: Своя ветка", "Trash2"]]) {
       const button = rendered.getByRole("button", { name: label });
@@ -339,16 +354,22 @@ it("opens the board first, keeps read questions active and copies the edited rep
     rpc: { list: () => ({ watches: [], colors: { answer: null, attention: null, resolved: null } }),
       board: () => ({ answer: { total: 1, rows: [item] }, attention: empty, resolved: empty }),
       readCard: () => { item.opened = true; return null; } },
-    openUrl: () => true,
+    settings: { openTarget: "В приложении" }, openUrl: () => false,
   });
   try {
-    fireEvent.click(await view.findByText("Ответить"));
+    const href = item.url.replace("https:", "mattermost:");
+    expect((await view.findByRole("link", { name: item.headline })).getAttribute("href")).toBe(href);
+    fireEvent.keyDown(view.getByLabelText("Выбрать, где открыть: " + item.headline), { key: "Enter" });
+    expect((await view.findByRole("menuitem", { name: "В браузере" })).getAttribute("href")).toBe(item.url);
+    fireEvent.keyDown(view.getByRole("menu"), { key: "Escape" });
+    fireEvent.click(view.getByText("Ответить"));
     await waitFor(() => expect(item.opened).toBe(true));
     fireEvent.change(view.getByLabelText("Черновик ответа"), { target: { value: "В пятницу" } });
     fireEvent.click(view.getByText("Скопировать и открыть в Mattermost"));
     await view.findByText("Черновик скопирован");
     expect(view.inspection.experimental_clipboardWrites).toEqual([{ text: "В пятницу" }]);
-    expect(view.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: item.url });
+    expect(view.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: href });
+    expect(view.getByRole("link", { name: /^Открыть в приложении$/ }).getAttribute("href")).toBe(href);
     expect(view.getByText("Ждут ответа")).toBeTruthy();
     fireEvent.click(view.getByRole("button", { name: /Подписки/ }));
     expect(view.inspection.navigateCalls.some(call => JSON.stringify(call).includes("list"))).toBe(true);

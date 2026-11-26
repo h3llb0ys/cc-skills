@@ -5,6 +5,8 @@ import { useSubscriptions, useWatchRefresh } from "../hooks/use-subscriptions";
 import { checkTime } from "../time";
 import { Marker, type Colors } from "./status";
 import { SubscriptionList } from "./subscriptions";
+import { WatchEditor } from "./watch-editor";
+import { OpenSource, usePreferredLink } from "./open-source";
 import { ReplyDraft } from "./reply-draft";
 
 function Card({ item }: { item: BoardCard }) {
@@ -17,16 +19,16 @@ function Card({ item }: { item: BoardCard }) {
     try { await rpc.call("readCard", { id: item.id, revision: item.revision }); setError(""); }
     catch (err) { setError(String(err)); }
   }
+  const { link, loading } = usePreferredLink(item.url, read);
   return <article className="mm-board-card">
-    <div className="mm-board-title"><a className={item.opened ? "" : "mm-unread"} href={item.url}
-      target="_blank" rel="noopener noreferrer" onClick={() => void read()}>{item.headline}</a>
+    <div className="mm-board-title">{loading ? <span>{item.headline}</span> :
+      <a className={item.opened ? "" : "mm-unread"} {...link}>{item.headline}</a>}
       <time dateTime={new Date(item.updated * 1000).toISOString()}>{checkTime.format(item.updated * 1000)}</time></div>
     {item.body && item.body !== item.headline && <p>{item.body}</p>}
     <div className="mm-board-meta"><small>{item.source}{item.author && " · " + item.author}</small><div className="mm-actions">
       {item.draft && <button aria-expanded={reply} onClick={() => { setReply(!reply); void read(); }}>
         <Icon name="Reply" aria-hidden /> Ответить</button>}
-      <a href={item.url} target="_blank" rel="noopener noreferrer" aria-label={`Открыть в Mattermost: ${item.headline}`}
-        title="Открыть в Mattermost" onClick={() => void read()}><Icon name="ExternalLink" aria-hidden /></a>
+      <OpenSource watch={{ url: item.url, title: item.headline }} onOpen={read} />
     </div></div>
     {item.draft && reply && <ReplyDraft url={item.url} text={edit ?? item.draft} update={setEdit} />}
     {error && <small role="alert">{error}</small>}
@@ -67,17 +69,23 @@ export function MattermostPanel({ subPath }: { subPath: string }) {
   const nav = useBbNavigate();
   const watches = useSubscriptions();
   const grouped = subPath === "threads";
-  const inbox = subPath !== "list" && !grouped;
+  const editId = /^edit\/([a-f0-9]{20})$/.exec(subPath)?.[1];
+  const editing = editId ? watches.data?.watches.find(w => w.id === editId) : undefined;
+  const list = subPath === "list" || !!editId;
+  const inbox = !list && !grouped;
   const last = Math.max(0, ...(watches.data?.watches ?? []).map(w => w.last_checked_at ?? 0));
   return <section className="mm-ui mm-panel mm-board">
     <header><h2>Mattermost</h2>{last > 0 && <small>Проверено {checkTime.format(last * 1000)}</small>}</header>
     <nav className="mm-tabs" aria-label="Mattermost">
       <button aria-pressed={inbox} onClick={() => nav.toPluginPanel("subscriptions")}>Входящие</button>
-      <button aria-pressed={subPath === "list"} onClick={() => nav.toPluginPanel("subscriptions", { subPath: "list" })}>
+      <button aria-pressed={list} onClick={() => nav.toPluginPanel("subscriptions", { subPath: "list" })}>
         Подписки{watches.data && " · " + watches.data.watches.length}</button>
       <button aria-pressed={grouped} onClick={() => nav.toPluginPanel("subscriptions", { subPath: "threads" })}>По тредам BB</button>
     </nav>
     {inbox ? <Board colors={watches.data?.colors ?? defaults} subscriptions={watches.data?.watches.length} />
+      : editId ? (editing && !editing.paused
+        ? <WatchEditor key={editId} watch={editing} close={() => nav.toPluginPanel("subscriptions", { subPath: "list" })} />
+        : <p>{watches.error ? "Не удалось загрузить подписку" : watches.isLoading ? "Загрузка…" : "Подписка недоступна для редактирования"}</p>)
       : <SubscriptionList query={watches} grouped={grouped} />}
   </section>;
 }

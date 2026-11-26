@@ -16,6 +16,8 @@ export function WatchEditor({ watch, threadId, close }: { watch?: Watch; threadI
   const currentChat = watch?.chat || threadId;
   const context = useBbContext();
   const targets = threads.filter(t => !t.isArchived && !t.isHidden && t.environment?.id);
+  const [selectedChat, setSelectedChat] = useState<string>();
+  const chat = selectedChat ?? currentChat ?? targets.find(t => t.id === context.threadId)?.id ?? "";
   const titleCounts = new Map<string, number>();
   for (const t of targets) titleCounts.set(t.displayTitle, (titleCounts.get(t.displayTitle) ?? 0) + 1);
   const [rule, setRule] = useState(watch?.rule ?? "Все новые сообщения");
@@ -31,7 +33,6 @@ export function WatchEditor({ watch, threadId, close }: { watch?: Watch; threadI
         destination: data.has("shared") ? "shared" : "chat",
         push: String(data.get("push")).trim() || null, draft: data.has("draft"),
         until: end ? Math.floor(new Date(end).getTime() / 1000) : null };
-      const chat = String(data.get("chat") || "");
       if (watch) await rpc.call("edit", { ...settings, id: watch.id, ...(chat !== watch.chat && { chat }) });
       else await rpc.call("create", { ...settings, url: String(data.get("url")).trim(),
         chat, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
@@ -42,10 +43,9 @@ export function WatchEditor({ watch, threadId, close }: { watch?: Watch; threadI
       {!watch && <label className="wide">Ссылка на канал или ветку Mattermost<input name="url" type="url" required autoFocus /></label>}
       <label>Интервал, минуты<input name="interval" type="number" min="1" required defaultValue={watch?.interval ?? 10} /></label>
       <label>Следить до (местное время)<input type="datetime-local" name="until" defaultValue={localDate(watch?.until ?? null)} /></label>
-      <label className="wide">Куда присылать<select name="chat" required
-        defaultValue={currentChat || (targets.some(t => t.id === context.threadId) ? context.threadId! : "")}>
+      <label className="wide">Куда присылать<select name="chat" required value={chat} onChange={e => setSelectedChat(e.target.value)}>
         {!currentChat && <option value="">Выбери тред BB</option>}
-        {currentChat && !targets.some(t => t.id === currentChat) && <option value={currentChat}>{currentChat}</option>}
+        {chat && !targets.some(t => t.id === chat) && <option value={chat}>{chat}</option>}
         {targets.map(t => <option key={t.id} value={t.id}>{t.displayTitle}{titleCounts.get(t.displayTitle)! > 1 && ` · ${t.environment?.name || t.projectId} · ${t.id}`}</option>)}
       </select></label>
       {status === "error" && <small className="wide" role="alert">Не удалось загрузить список тредов BB.</small>}
