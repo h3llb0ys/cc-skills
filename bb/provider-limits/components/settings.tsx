@@ -1,18 +1,19 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { experimental_useProviders } from "@get-bb/plugin-sdk/app";
-import { optionsSchema, statusText } from "../model";
+import { optionsSchema, statusText, type Options } from "../model";
 import { useLimits } from "../hooks/use-limits";
 
 export function Settings() {
   const { options, snapshot, error, save, loaded } = useLimits();
-  const [dirty, setDirty] = useState(false);
   const { providers } = experimental_useProviders();
-  const [draft, setDraft] = useState(options);
+  const [edits, setEdits] = useState<Options>();
+  const draft = edits ?? options;
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (!dirty) setDraft(options);
-  }, [options, dirty]);
+  function edit(patch: Partial<Options>) {
+    setEdits({ ...draft, ...patch });
+    setMessage("");
+  }
   const ids = [
     ...new Set([
       ...snapshot.rows.map((r) => r.id),
@@ -29,7 +30,7 @@ export function Settings() {
         setBusy(true);
         try {
           await save(optionsSchema.parse(draft));
-          setDirty(false);
+          setEdits(undefined);
           setMessage("Сохранено");
         } catch {
           setMessage(
@@ -40,14 +41,7 @@ export function Settings() {
         }
       }}
     >
-      <fieldset
-        className="pl-settings-fields"
-        disabled={!loaded || busy}
-        onChange={() => {
-          setDirty(true);
-          setMessage("");
-        }}
-      >
+      <fieldset className="pl-settings-fields" disabled={!loaded || busy}>
         <p>
           Иконки находятся над настройками в левой панели. Если их нет: Settings
           → Appearance → Navigation → Provider Limits.
@@ -57,15 +51,12 @@ export function Settings() {
           <input
             type="number"
             min="0.5"
-            step="0.5"
+            step="any"
             max="1440"
             required
             value={draft.refreshSeconds / 60}
             onChange={(e) =>
-              setDraft({
-                ...draft,
-                refreshSeconds: Number(e.target.value) * 60,
-              })
+              edit({ refreshSeconds: Math.round(Number(e.target.value) * 60) })
             }
           />
         </label>
@@ -77,9 +68,7 @@ export function Settings() {
             max="44"
             step="1"
             value={draft.iconSize}
-            onChange={(e) =>
-              setDraft({ ...draft, iconSize: Number(e.target.value) })
-            }
+            onChange={(e) => edit({ iconSize: Number(e.target.value) })}
           />
           <output>{draft.iconSize}</output>
         </label>
@@ -87,9 +76,7 @@ export function Settings() {
           <input
             type="checkbox"
             checked={draft.onlyAuthenticated}
-            onChange={(e) =>
-              setDraft({ ...draft, onlyAuthenticated: e.target.checked })
-            }
+            onChange={(e) => edit({ onlyAuthenticated: e.target.checked })}
           />{" "}
           Только провайдеры с подтверждённым входом и доступными лимитами
         </label>
@@ -106,10 +93,7 @@ export function Settings() {
             windows: null,
           };
           const update = (value: typeof current) =>
-            setDraft({
-              ...draft,
-              providers: { ...draft.providers, [id]: value },
-            });
+            edit({ providers: { ...draft.providers, [id]: value } });
           return (
             <fieldset key={id}>
               <legend>
@@ -128,7 +112,7 @@ export function Settings() {
               <p className="pl-muted">
                 {row
                   ? statusText[row.status]
-                  : "BB не предоставил лимиты для этого провайдера"}
+                  : "Лимиты для этого провайдера недоступны"}
               </p>
               <label>
                 <input

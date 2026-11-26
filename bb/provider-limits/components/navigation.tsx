@@ -50,6 +50,7 @@ export function Rail() {
   const { items, actions, isHomeActive } = experimental_useSidebarNavigation();
   const { options, snapshot, error } = useLimits();
   const [overflow, setOverflow] = useState(false);
+  const warning = error || snapshot.error;
   return (
     <div className="pl-rail" data-bb-plugin="provider-limits">
       <div className="pl-nav">
@@ -104,11 +105,11 @@ export function Rail() {
             row={row}
             options={options}
             updatedAt={snapshot.updatedAt}
-            error={error || snapshot.error}
+            error={warning}
           />
         ))}
-        {(error || snapshot.error) && (
-          <span className="pl-status" title={error || snapshot.error || ""}>
+        {warning && (
+          <span className="pl-status" title={warning}>
             !
           </span>
         )}

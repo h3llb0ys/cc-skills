@@ -30,6 +30,7 @@ export const rowSchema = z.object({
     "error",
   ]),
   plan: z.string().nullable(),
+  observedAt: z.number().nullable().optional(),
   windows: z.array(windowSchema),
 });
 export type Row = z.infer<typeof rowSchema>;
@@ -68,11 +69,12 @@ export function selectedWindows(row: Row, options: Options) {
   return windows;
 }
 export function visibleRows(rows: Row[], options: Options) {
-  return rows.filter(
-    (r) =>
-      options.providers[r.id]?.enabled !== false &&
-      r.status !== "not_installed" &&
-      (!options.onlyAuthenticated || r.status === "ok") &&
-      (r.status !== "ok" || selectedWindows(r, options).length > 0),
-  );
+  return rows.filter((row) => {
+    if (options.providers[row.id]?.enabled === false || row.status === "not_installed")
+      return false;
+    return row.status === "ok"
+      ? selectedWindows(row, options).length > 0
+      : !options.onlyAuthenticated ||
+        (row.status === "error" && selectedWindows(row, options).length > 0);
+  });
 }

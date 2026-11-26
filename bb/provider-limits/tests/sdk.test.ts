@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 test("uses only public SDK and package-local imports", async () => {
   const result = await experimental_scanPublicSdkOnly(
     fileURLToPath(new URL("..", import.meta.url)),
-    { allow: [/^react$/, /^react-dom$/] },
+    { allow: [/^react$/, /^react-dom$/, /^@get-bb\/plugin-sdk\/process$/] },
   );
   assert.deepEqual(result.violations, []);
   assert.deepEqual(result.privateDependencies, []);

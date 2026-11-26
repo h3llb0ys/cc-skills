@@ -17,21 +17,34 @@ export function Ring({
   const { providers } = experimental_useProviders();
   const provider = providers.find((p) => p.id === row.id);
   const name = provider?.displayName ?? row.id;
-  const windows = selectedWindows(row, options);
+  const now = Date.now();
+  const windows = selectedWindows(row, options).map((window) => ({
+    ...window,
+    value: remaining(window, now),
+  }));
   const tooltipId = useId();
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
-  const values = windows.map((w) => remaining(w));
-  const stale = Boolean(error) || values.some((v) => v === null);
-  const label = `${name}: ${row.status === "ok" ? windows.map((w, i) => `${w.label}: ${values[i] === null ? "ожидаем обновления" : `${Math.round(values[i]!)}% осталось`}`).join(", ") : statusText[row.status]}`;
+  const stale = Boolean(error) || row.status === "error" ||
+    windows.some(({ value }) => value === null);
+  const summary = windows.map(({ label, value }) =>
+    `${label}: ${value === null ? "ожидаем обновления" : `${Math.round(value)}% осталось`}`,
+  );
+  if (row.status !== "ok") summary.push(statusText[row.status]);
+  const lastUpdate = row.observedAt ?? updatedAt;
   return (
     <>
       <button
         className="pl-ring"
         style={{ width: options.iconSize, height: options.iconSize }}
-        aria-label={label}
+        aria-label={`${name}: ${summary.join(", ")}`}
         aria-describedby={anchor ? tooltipId : undefined}
         onMouseEnter={(e) => setAnchor(e.currentTarget.getBoundingClientRect())}
-        onMouseLeave={() => setAnchor(null)}
+        onMouseLeave={(e) => {
+          if (!(e.relatedTarget instanceof Node &&
+              document.getElementById(tooltipId)?.contains(e.relatedTarget))) {
+            setAnchor(null);
+          }
+        }}
         onFocus={(e) => setAnchor(e.currentTarget.getBoundingClientRect())}
         onBlur={() => setAnchor(null)}
         onKeyDown={(e) => {
@@ -43,17 +56,10 @@ export function Ring({
           {(windows.length ? windows : [null]).map((w, i) => {
             const radius =
               21 - i * Math.min(4, 10 / Math.max(1, windows.length - 1));
-            const value = w ? remaining(w) : null;
-            const color =
-              value === null
-                ? "#888"
-                : value <= 10
-                  ? "#f87171"
-                  : value <= 25
-                    ? "#fbbf24"
-                    : i === 0
-                      ? "#a3b6c7"
-                      : "#42c9b0";
+            const value = w?.value ?? null;
+            const color = value !== null && value <= 10 ? "#f87171"
+              : value !== null && value <= 25 ? "#fbbf24"
+              : i === 0 ? "#a3b6c7" : "#42c9b0";
             return (
               <g key={w?.label ?? "unknown"}>
                 <circle
@@ -100,20 +106,24 @@ export function Ring({
             data-bb-plugin="provider-limits"
             role="tooltip"
             id={tooltipId}
-            style={{
-              left: anchor.right + 12,
-              top: Math.max(8, Math.min(anchor.top, window.innerHeight - 260)),
+            style={{ left: anchor.right }}
+            onMouseLeave={() => setAnchor(null)}
+            ref={(tooltip) => {
+              if (tooltip) {
+                const bottom = window.innerHeight - tooltip.offsetHeight - 8;
+                tooltip.style.top = `${Math.max(8, Math.min(anchor.top, bottom))}px`;
+              }
             }}
           >
             <strong>{name}</strong>
             {row.plan && <span className="pl-muted">{row.plan}</span>}
-            {windows.map((w, i) => (
+            {windows.map((w) => (
               <div className="pl-window" key={w.label}>
                 <b>{w.label}</b>
                 <span>
-                  {values[i] === null
+                  {w.value === null
                     ? "Ожидаем обновления после сброса"
-                    : `Осталось ${Math.round(values[i]!)}% · использовано ${Math.round(w.usedPercent)}%`}
+                    : `Осталось ${Math.round(w.value)}% · использовано ${Math.round(w.usedPercent)}%`}
                 </span>
                 <span className="pl-muted">
                   Сброс:{" "}
@@ -127,8 +137,8 @@ export function Ring({
             {error && <p>{error}</p>}
             <small className="pl-muted">
               Обновлено:{" "}
-              {updatedAt
-                ? new Date(updatedAt).toLocaleTimeString()
+              {lastUpdate
+                ? new Date(lastUpdate).toLocaleTimeString()
                 : "ещё нет данных"}
             </small>
           </div>,

@@ -9,4 +9,6 @@ Settings are under Plugins → Provider Limits. `save` RPC accepts `{refreshSeco
 
 Select `provider-limits/rail` in `sidebar.navigationProvider` to show rings. The plugin uses server-host quota data; it cannot infer missing limits or auth from CLI installation alone. Expired reset dates await new data, and errors are not zero remaining.
 
+For Antigravity CLI (`acp-antigravity-cli`), the plugin can read Gemini quota windows from `agy -p /usage --output-format json` on the BB server when the SDK does not report that provider. This requires `agy` and an existing CLI login.
+
 The UI displays refresh intervals in minutes; RPC storage remains in seconds. Defaults: 1800 seconds (30 minutes), iconSize 36 px.

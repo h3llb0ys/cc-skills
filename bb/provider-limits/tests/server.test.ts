@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import type { Snapshot } from "../model";
+import { optionsSchema, visibleRows, type Snapshot } from "../model";
 test("coalesces parallel requests, respects cache and strips account details", async () => {
   let calls = 0;
   const { bb, harness } = createFakePluginHost({
@@ -160,4 +160,62 @@ test("aborts provider requests on disposal", async () => {
   assert.equal(signal?.aborted, false);
   await harness.lifecycle.dispose();
   assert.equal(signal?.aborted, true);
+});
+
+test("keeps stale windows visible without changing their observation time", async () => {
+  const originalNow = Date.now;
+  const observedAt = 1_800_000_000_000;
+  let now = observedAt;
+  Date.now = () => now;
+  let catalogCalls = 0;
+  const { bb, harness } = createFakePluginHost({
+    pluginId: "provider-limits",
+    sdk: {
+      providers: {
+        list: async () => {
+          catalogCalls++;
+          throw new Error("catalog unavailable");
+        },
+      },
+      system: {
+        usageLimits: async () => {
+          const calls = (now - observedAt) / 60_000;
+          const ok = (usedPercent: number) => ({
+            status: "ok",
+            planLabel: null,
+            windows: [{ label: "Weekly", usedPercent, resetsAt: null }],
+          });
+          const gemini = calls === 30 || calls === 31 ? {} : { "acp-antigravity-cli": ok(10) };
+          return { codex: ok(calls), ...gemini };
+        },
+      },
+    },
+  });
+  plugin(bb);
+  const snapshot = async () => (await harness.behavior.callRpc("snapshot", null)) as Snapshot;
+  try {
+    await snapshot();
+    assert.equal(catalogCalls, 0);
+    now += 30 * 60_000;
+    const stale = await snapshot();
+    assert.equal(stale.updatedAt, now);
+    assert.equal(stale.rows[0].windows[0].usedPercent, 30);
+    assert.deepEqual(visibleRows(stale.rows, optionsSchema.parse({}))[1], {
+      id: "acp-antigravity-cli",
+      status: "error",
+      plan: null,
+      observedAt,
+      windows: [{ label: "Weekly", usedPercent: 10, resetsAt: null }],
+    });
+    now += 60_000;
+    assert.equal((await snapshot()).rows[1].observedAt, observedAt);
+    now += 60_000;
+    const fresh = await snapshot();
+    assert.equal(fresh.rows[1].status, "ok");
+    assert.equal(fresh.rows[1].observedAt, undefined);
+    assert.equal(catalogCalls, 2);
+  } finally {
+    Date.now = originalNow;
+    await harness.lifecycle.dispose();
+  }
 });

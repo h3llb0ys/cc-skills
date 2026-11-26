@@ -1,6 +1,7 @@
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { optionsSchema, snapshotSchema, type Snapshot } from "./model";
+import { antigravityProviderId, readAntigravityUsage } from "./antigravity";
+import { optionsSchema, rowSchema, snapshotSchema, type Snapshot } from "./model";
 export const rpcContract = defineRpcContract({
   options: { input: z.null(), output: optionsSchema },
   save: { input: optionsSchema, output: z.null() },
@@ -18,6 +19,7 @@ export default function plugin(bb: BbPluginApi) {
     if (flight) return flight;
     const config = await options();
     if (flight) return flight;
+    const now = Date.now();
     const retryMs =
       cache.error || cache.rows.some((row) => row.status === "error")
         ? Math.min(config.refreshSeconds * 1000, 60_000)
@@ -25,35 +27,42 @@ export default function plugin(bb: BbPluginApi) {
     const resetDue = cache.rows.some((row) =>
       row.windows.some((window) => {
         const reset = Date.parse(window.resetsAt ?? "");
-        return reset <= Date.now() && reset > (lastAttempt ?? 0);
+        return reset <= now && reset > (lastAttempt ?? 0);
       }),
     );
-    if (lastAttempt !== null && Date.now() - lastAttempt < retryMs && !resetDue)
+    if (lastAttempt !== null && now - lastAttempt < retryMs && !resetDue)
       return cache;
-    lastAttempt = Date.now();
+    lastAttempt = now;
     flight = (async () => {
       try {
-        const usage = await bb.sdk.system.usageLimits({
-          refresh: true,
-          signal: AbortSignal.any([
-            lifecycle.signal,
-            AbortSignal.timeout(25000),
-          ]),
-        });
-        cache = {
-          rows: Object.entries(usage).map(([id, result]) => ({
+        const signal = AbortSignal.any([
+          lifecycle.signal,
+          AbortSignal.timeout(25_000),
+        ]);
+        const usage = await bb.sdk.system.usageLimits({ refresh: true, signal });
+        const rows = Object.entries(usage).map(([id, result]) =>
+          rowSchema.parse({
             id,
             status: result.status,
             plan: result.status === "ok" ? result.planLabel : null,
-            windows:
-              result.status === "ok"
-                ? result.windows.map((w) => ({
-                    label: w.label,
-                    usedPercent: w.usedPercent,
-                    resetsAt: w.resetsAt,
-                  }))
-                : [],
-          })),
+            windows: result.status === "ok" ? result.windows : [],
+          }),
+        );
+        if (!Object.hasOwn(usage, antigravityProviderId)) {
+          const fallback = await readAntigravityUsage(bb.sdk.providers, signal);
+          if (fallback) rows.push(fallback);
+        }
+        cache = {
+          rows: rows.map((row) => {
+            if (row.status !== "error") return row;
+            const previous = cache.rows.find(({ id }) => id === row.id);
+            if (!previous?.windows.length) return row;
+            return {
+              ...previous,
+              status: "error",
+              observedAt: previous.observedAt ?? cache.updatedAt,
+            };
+          }),
           updatedAt: Date.now(),
           error: null,
         };

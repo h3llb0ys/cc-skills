@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRpc, useRealtime, useRealtimeConnectionState } from "@get-bb/plugin-sdk/app";
 import { type rpcContract } from "../server";
 import { optionsSchema, type Options, type Snapshot } from "../model";
 
+const defaultOptions = optionsSchema.parse({});
+
 export function useLimits() {
   const rpc = useRpc<typeof rpcContract>();
-  const [options, setOptions] = useState<Options>(optionsSchema.parse({}));
+  const [savedOptions, setOptions] = useState<Options>();
   const [snapshot, setSnapshot] = useState<Snapshot>({
     rows: [],
     updatedAt: null,
@@ -13,7 +15,6 @@ export function useLimits() {
   });
   const [error, setError] = useState("");
   const [optionsError, setOptionsError] = useState("");
-  const [loaded, setLoaded] = useState(false);
   const connection = useRealtimeConnectionState();
   const [revision, setRevision] = useState(0);
   useRealtime("options-changed", () => setRevision((n) => n + 1));
@@ -24,7 +25,6 @@ export function useLimits() {
       .then((v) => {
         if (live) {
           setOptions(v);
-          setLoaded(true);
           setOptionsError("");
         }
       })
@@ -49,7 +49,7 @@ export function useLimits() {
         if (live) setError("Нет связи с плагином");
       } finally {
         if (live)
-          timer = setTimeout(poll, Math.min(options.refreshSeconds, 30) * 1000);
+          timer = setTimeout(poll, 30_000);
       }
     };
     void poll();
@@ -57,13 +57,16 @@ export function useLimits() {
       live = false;
       clearTimeout(timer);
     };
-  }, [rpc, options.refreshSeconds, connection]);
-  const save = useCallback(
-    async (value: Options) => {
-      await rpc.call("save", value);
-      setOptions(value);
-    },
-    [rpc],
-  );
-  return { options, snapshot, error: optionsError || error, save, loaded };
+  }, [rpc, connection]);
+  async function save(value: Options) {
+    await rpc.call("save", value);
+    setOptions(value);
+  }
+  return {
+    options: savedOptions ?? defaultOptions,
+    snapshot,
+    error: optionsError || error,
+    save,
+    loaded: savedOptions !== undefined,
+  };
 }

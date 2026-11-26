@@ -25,6 +25,9 @@
 .pl-rings {
   margin-top: auto;
   flex-shrink: 0;
+  max-height: 60%;
+  overflow-y: auto;
+  min-height: 0;
 }
 .pl-nav-button {
   position: relative;
@@ -98,6 +101,7 @@
   z-index: 10000;
   width: 300px;
   max-width: calc(100vw - 80px);
+  box-sizing: border-box;
   max-height: calc(100vh - 16px);
   overflow: auto;
   padding: 14px;
@@ -107,7 +111,6 @@
   color: var(--foreground, #eee);
   box-shadow: 0 8px 32px #0005;
   font-size: 12px;
-  pointer-events: none;
 }
 .pl-tooltip > strong {
   display: block;
@@ -176,9 +179,4 @@
   margin: 0;
   min-width: 0;
   gap: 14px;
-}
-.pl-rings {
-  max-height: 60%;
-  overflow-y: auto;
-  min-height: 0;
 }
