@@ -1,3 +1,4 @@
+import { createThreadRowLink, threadRowLinks } from '../shared-ui/thread-row';
 import { mrUrl, type Snapshot } from './contract';
 import { orderedLinks, presentation } from './presentation';
 
@@ -30,23 +31,16 @@ export function decorateSidebar(doc: Document, onKeys: (keys: string[]) => void)
         entry?.badges.remove();
         const badges = doc.createElement('span');
         badges.dataset.gitlabMrBadges = inline ? 'inline' : 'stacked';
+        badges.setAttribute(threadRowLinks, 'mr');
         badges.setAttribute('aria-label', 'Merge requests');
         for (const link of links) {
           const status = presentation(link);
-          const badge = doc.createElement('a');
+          const badge = createThreadRowLink(doc, mrUrl(link), `!${link.iid} · ${link.title} · ${status.detail}`);
           badge.className = `gitlab-mr-sidebar-badge gitlab-mr-${status.color}`;
-          badge.href = mrUrl(link);
-          badge.target = '_blank';
-          badge.rel = 'noopener noreferrer';
-          badge.title = `!${link.iid} · ${link.title} · ${status.detail}`;
-          badge.setAttribute('aria-label', badge.title);
           const icon = doc.createElement('span');
           icon.className = 'gitlab-mr-sidebar-icon';
           icon.setAttribute('aria-hidden', 'true');
           badge.append(icon, `!${link.iid}`);
-          for (const event of ['click', 'dblclick', 'pointerdown', 'keydown']) {
-            badge.addEventListener(event, event => event.stopPropagation());
-          }
           badges.append(badge);
         }
         entry = { badges, signature };
