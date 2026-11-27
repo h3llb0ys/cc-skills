@@ -5,6 +5,7 @@
 
 | Плагин и настройки | Каталог для `--subdirectory` | ID для обновления и перезагрузки |
 | --- | --- | --- |
+| [Companion](companion/README.md) | `bb/companion` | `companion` |
 | [Diff Preview](diff-preview/README.md) | `bb/diff-preview` | `diff-preview` |
 | [GitLab MR](gitlab-mr/README.md) | `bb/gitlab-mr` | `gitlab-mr` |
 | [Jira Thread Links](jira-thread-links/README.md) | `bb/jira-thread-links` | `jira-thread-links` |
