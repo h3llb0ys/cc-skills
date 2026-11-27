@@ -8,6 +8,12 @@ export const rpcContract = defineRpcContract({
  save: {input:z.object({target:targetSchema, appearance:appearanceSchema.nullable()}), output:z.null()},
 });
 export default function plugin(bb: BbPluginApi) {
+ bb.settings.define({
+  compactRows: {
+   type: 'boolean', label: 'Компактные строки', default: false,
+   description: 'Шевроны слева, Jira и MR справа, остальные ссылки и worktree в меню строки.',
+  },
+ });
  let queue: Promise<unknown> = Promise.resolve();
  async function read(): Promise<Record<string,Appearance>> {
   const stored = await bb.storage.kv.get('appearances');

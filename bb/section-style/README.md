@@ -30,6 +30,15 @@ Both use BB's existing row controls. They act on rows currently rendered by
 the Thread list, so branches inside already closed groups and rows BB has
 unmounted while scrolling keep their state.
 
+## Compact thread rows
+
+Enable **Компактные строки** in the Section Style settings for the standard
+thread list. Native chevrons move to the left. Jira Thread Links and GitLab MR
+contribute their first visible link beside the title. Extra links and the
+Workspace Tools worktree or branch details go in the row menu. The count
+includes extra links. At narrow widths the row menu holds all links.
+The contributors retain their own visibility and color settings.
+
 ## Installation
 
 [Install or update from GitHub or a local checkout](../README.md).
