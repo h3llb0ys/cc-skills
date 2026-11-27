@@ -1,0 +1,129 @@
+.gitlab-mr-list {
+  display: grid;
+  gap: 3px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gitlab-mr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.gitlab-mr-glyph {
+  color: var(--muted-foreground);
+}
+
+.gitlab-mr-link {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gitlab-mr-number {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.gitlab-mr-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+
+.gitlab-mr-status {
+  flex-shrink: 0;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.gitlab-mr-green { color: var(--success, #16834a); }
+.gitlab-mr-orange { color: var(--warning, #ad5b10); }
+.gitlab-mr-red { color: var(--destructive, #db4147); }
+.gitlab-mr-purple { color: #a97aeb; }
+.gitlab-mr-gray { color: var(--muted-foreground, #777); }
+
+.gitlab-mr-notice {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.gitlab-mr-notice button {
+  cursor: pointer;
+}
+
+[data-gitlab-mr-badges] {
+  position: relative;
+  z-index: 32;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 18px;
+  pointer-events: auto;
+}
+
+:has(> [data-gitlab-mr-badges="inline"]) {
+  display: flex !important;
+  flex: 1 !important;
+  min-width: 0;
+  gap: 6px;
+}
+
+:has(> [data-gitlab-mr-badges="inline"]) > .bb-thread-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-sidebar-rename-row]:has([data-gitlab-mr-badges="stacked"]) {
+  height: auto !important;
+  min-height: var(--bb-sidebar-row-height, 28px) !important;
+}
+
+:has(> [data-gitlab-mr-badges="stacked"]) {
+  flex-wrap: wrap !important;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+[data-gitlab-mr-badges="stacked"] {
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  padding-left: 22px;
+}
+
+.gitlab-mr-sidebar-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 3px;
+  border-radius: 4px;
+  text-decoration: none;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.gitlab-mr-sidebar-badge:hover { text-decoration: underline; }
+.gitlab-mr-sidebar-badge:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+.gitlab-mr-sidebar-icon {
+  width: 11px;
+  height: 12px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='4' cy='3' r='1.75'/%3E%3Ccircle cx='4' cy='13' r='1.75'/%3E%3Ccircle cx='12' cy='13' r='1.75'/%3E%3Cpath d='M4 4.75v6.5m4-8.5 2 2-2 2m2-2h.5a1.5 1.5 0 0 1 1.5 1.5v5'/%3E%3C/svg%3E") center / contain no-repeat;
+}

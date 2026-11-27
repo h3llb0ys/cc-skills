@@ -6,6 +6,7 @@
 | Плагин и настройки | Каталог для `--subdirectory` | ID для обновления и перезагрузки |
 | --- | --- | --- |
 | [Diff Preview](diff-preview/README.md) | `bb/diff-preview` | `diff-preview` |
+| [GitLab MR](gitlab-mr/README.md) | `bb/gitlab-mr` | `gitlab-mr` |
 | [Jira Thread Links](jira-thread-links/README.md) | `bb/jira-thread-links` | `jira-thread-links` |
 | [Mattermost](mattermost/README.md) | `bb/mattermost` | `mattermost` |
 | [MR cycle](mr-cycle/README.md) | `bb/mr-cycle` | `mr-cycle` |
