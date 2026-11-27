@@ -1,3 +1,5 @@
+import { createThreadRowLink, threadRowColor, threadRowLinks } from '../../shared-ui/thread-row';
+
 export type TaskLink = { key: string; summary: string; url: string };
 export function decorateRows(doc: Document) {
  let data: Record<string, TaskLink[]> = {};
@@ -17,6 +19,15 @@ export function decorateRows(doc: Document) {
  .jira-task-content-multiple > [data-jira-task-links] { flex-basis:100%; flex-wrap:wrap; padding-left:22px; }
  `;
  doc.head.append(style);
+ function applyColor(links: HTMLElement) {
+   if (color) {
+     links.style.setProperty('--jira-task-color', color);
+     links.setAttribute(threadRowColor, color);
+   } else {
+     links.style.removeProperty('--jira-task-color');
+     links.removeAttribute(threadRowColor);
+   }
+ }
  function remove(anchor: Element) {
    const old = owned.get(anchor); if (!old) return;
    old.links.remove(); old.title.classList.remove('jira-task-title-single');
@@ -45,15 +56,14 @@ export function decorateRows(doc: Document) {
      }
      remove(anchor);
      if (!tasks.length || !content || !title || !row) continue;
-     const links = doc.createElement('span'); links.dataset.jiraTaskLinks = '';
-     if (color) links.style.setProperty('--jira-task-color',color);
+     const links = doc.createElement('span'); links.dataset.jiraTaskLinks = ''; links.setAttribute(threadRowLinks, 'jira');
+     applyColor(links);
      links.setAttribute('aria-label', 'Актуальные задачи Jira');
      for (const task of tasks) {
-       const link = doc.createElement('a'); link.dataset.jiraTaskLink = task.key;
-       link.href = task.url; link.target = '_blank'; link.rel = 'noopener noreferrer';
-       link.textContent = task.key; link.title = `${task.key} · ${task.summary}`;
-       link.setAttribute('aria-label', `${task.key} · ${task.summary} — открыть Jira`);
-       for (const event of ['click','dblclick','pointerdown','keydown']) link.addEventListener(event, e => e.stopPropagation());
+       const title = `${task.key} · ${task.summary}`;
+       const link = createThreadRowLink(doc, task.url, title, `${title} — открыть Jira`);
+       link.dataset.jiraTaskLink = task.key;
+       link.textContent = task.key;
        links.append(link);
      }
      if (tasks.length === 1) { title.classList.add('jira-task-title-single'); title.append(links); }
@@ -66,10 +76,7 @@ export function decorateRows(doc: Document) {
  return {
    setColor(next: string | null) {
      color = next && /^#[0-9a-fA-F]{6}$/.test(next) ? next : null;
-     for (const {links} of owned.values()) {
-       if (color) links.style.setProperty('--jira-task-color',color);
-       else links.style.removeProperty('--jira-task-color');
-     }
+     for (const {links} of owned.values()) applyColor(links);
    },
    update(next: Record<string, TaskLink[]>) { data = next; refresh(); },
    dispose() { disposed=true; observer.disconnect(); for (const anchor of owned.keys()) remove(anchor); style.remove(); },
