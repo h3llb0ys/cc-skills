@@ -29,14 +29,21 @@ export function workspaceLabels(environment: Environment | null, status: GitStat
     labels.push({ kind: 'worktree', text: environment.linked && layout !== 'details' ? branch ?? name : name });
   }
   const defaultBranch = live?.branch.defaultBranch ?? 'main';
-  if (branch && !(hideMain && branch === defaultBranch) && (!labels.length || layout === 'details')) labels.push({ kind: 'branch', text: branch });
+  const visibleBranch = branch && !(hideMain && branch === defaultBranch) ? branch : null;
+  if (visibleBranch && (!labels.length || layout === 'details')) labels.push({ kind: 'branch', text: visibleBranch });
   if (!labels.length) return null;
+  const branchNote = !knownCheckout && branch
+    ? environment.linked ? 'Ветка при привязке worktree' : 'Ветка из данных BB; Git сейчас не подтверждён'
+    : null;
   const tooltip = [
     worktree ? `Worktree: ${environment.path ?? name ?? ''}` : environment.path,
     branch ? `Ветка: ${branch}` : null,
-    !knownCheckout && branch
-      ? environment.linked ? 'Ветка при привязке worktree' : 'Ветка из данных BB; Git сейчас не подтверждён'
-      : null,
+    branchNote,
   ].filter(Boolean).join('\n');
-  return { labels, tooltip };
+  return {
+    labels, tooltip,
+    worktree: worktree ? name : null,
+    branch: visibleBranch,
+    branchNote: visibleBranch ? branchNote : null,
+  };
 }

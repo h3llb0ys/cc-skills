@@ -1,3 +1,4 @@
+import { workspaceRowDetails, type WorkspaceRowDetail } from '../../shared-ui/thread-row';
 import type { Environment, Layout } from '../sidebar/labels';
 import { workspaceLabels } from '../sidebar/labels';
 import type { GitStatus } from '../sidebar/git';
@@ -12,7 +13,11 @@ function Glyph({ kind }: { kind: 'branch' | 'worktree' }) {
 export function WorkspaceMetadata({ environment, status, layout, autoInline = true, hideMain = false, colors }: { environment: Environment | null; status?: GitStatus; layout: Layout; autoInline?: boolean; hideMain?: boolean; colors?: WorkspaceColors }) {
   const model = workspaceLabels(environment, status, layout, hideMain);
   if (!model) return null;
-  return <span className={`workspace-labels workspace-labels-${layout}`} data-workspace-auto-inline={String(autoInline)} style={colorStyle(colors)} title={model.tooltip} aria-label={model.tooltip}>
+  const details: WorkspaceRowDetail[] = [];
+  if (model.worktree) details.push({ kind: 'worktree', text: model.worktree, title: environment?.path ?? undefined, color: colors?.worktree });
+  if (model.branch) details.push({ kind: 'branch', text: model.branch, color: colors?.branch });
+  if (model.branchNote) details.push({ kind: 'note', text: model.branchNote });
+  return <span {...workspaceRowDetails(details)} className={`workspace-labels workspace-labels-${layout}`} data-workspace-auto-inline={String(autoInline)} style={colorStyle(colors)} title={model.tooltip} aria-label={model.tooltip}>
     {model.labels.map(label => <span key={label.kind} className="workspace-labels-item" data-workspace-kind={label.kind}>
       <Glyph kind={label.kind}/><span className="workspace-labels-text">{label.text}</span>
     </span>)}

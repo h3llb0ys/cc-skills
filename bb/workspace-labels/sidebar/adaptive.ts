@@ -1,3 +1,4 @@
+import { compactThreadRow } from '../../shared-ui/thread-row';
 import { inlineStyle } from './inline-style';
 
 type Row = { content: HTMLElement; title: HTMLElement; line: HTMLElement };
@@ -70,7 +71,7 @@ export function adaptiveRows(doc: Document) {
       const line = metadata?.parentElement;
       let title = heading;
       while (title?.parentElement && title.parentElement !== content) title = title.parentElement;
-      if (!native || !content || !title || !line || line.parentElement !== content || !line.contains(label)) continue;
+      if (!native || native.hasAttribute(compactThreadRow) || !content || !title || !line || line.parentElement !== content || !line.contains(label)) continue;
       const row: Row = { content, title, line };
       const previous = owned.get(content);
       if (previous && (previous.title !== title || previous.line !== line)) set(previous, false);
@@ -106,7 +107,7 @@ export function adaptiveRows(doc: Document) {
     })) schedule();
   });
   mutations.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true,
-    attributeFilter: ['class', 'style', 'data-workspace-auto-inline', 'data-sidebar-thread-id'] });
+    attributeFilter: [compactThreadRow, 'class', 'style', 'data-workspace-auto-inline', 'data-sidebar-thread-id'] });
   win.addEventListener('resize', schedule);
   doc.fonts?.addEventListener('loadingdone', schedule);
   void doc.fonts?.ready.then(schedule);
