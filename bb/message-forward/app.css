@@ -15,7 +15,7 @@
 }
 
 .message-forward-picker section {
-  padding: 14px;
+  padding: 12px;
 }
 
 .message-forward-picker header,
@@ -28,7 +28,7 @@
 
 .message-forward-picker header {
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .message-forward-picker h2 {
@@ -84,15 +84,53 @@
   overflow: auto;
 }
 
-.message-forward-targets button {
-  display: grid;
-  gap: 2px;
-  width: 100%;
-  text-align: start;
-  overflow-wrap: anywhere;
+.message-forward-project {
+  padding: 6px 6px 3px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
 }
 
-.message-forward-targets small,
+.message-forward-row {
+  display: flex;
+  align-items: center;
+}
+
+.message-forward-picker .message-forward-toggle {
+  width: 22px;
+  flex: 0 0 22px;
+  padding: 0;
+  line-height: 26px;
+  color: var(--muted-foreground);
+}
+
+.message-forward-picker .message-forward-target {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 6px;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: start;
+}
+
+.message-forward-target :is(span, small) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-forward-target small {
+  flex: 0 0 auto;
+  max-width: 40%;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
 .message-forward-picker p {
   color: var(--muted-foreground);
 }

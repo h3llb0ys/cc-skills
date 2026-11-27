@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   definePluginApp,
   experimental_useSidebarThreads,
@@ -9,9 +9,11 @@ import {
   type PluginMessageActionContext,
 } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
+import { getThreadRows } from "./thread-tree";
 import "./app.css";
 
 const actionTitle = "Переслать в чат…";
+const rootPageSize = 30;
 type Source = Pick<PluginMessageActionContext, "message" | "selectedText">;
 type Destination = { threadId: string; content: string };
 
@@ -125,7 +127,8 @@ function ThreadPicker({ request, busy, onChoose }: {
   const dialog = useRef<HTMLDialogElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
-  const [limit, setLimit] = useState(30);
+  const [rootLimit, setRootLimit] = useState(rootPageSize);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const { projects, status, threads } = experimental_useSidebarThreads();
   const sourceThread = threads.find(thread => thread.id === request.message.threadId);
   const sequence = request.message.experimental_messageSeq;
@@ -137,18 +140,22 @@ function ThreadPicker({ request, busy, onChoose }: {
   if (link) link.hash = "msg=" + sequence;
   const text = request.selectedText ?? request.message.text;
   const content = mode === "link" ? link?.href ?? "" : text;
-  const projectNames = new Map(projects.map(project => [project.id, project.name]));
   const search = query.trim().toLowerCase();
-  const targets = threads
-    .filter(thread => !thread.isHidden && !thread.isArchived && thread.id !== request.message.threadId)
-    .map(thread => ({
-      id: thread.id,
-      title: thread.displayTitle,
-      project: projectNames.get(thread.projectId) ?? "",
-      updatedAt: thread.updatedAt,
-    }))
-    .filter(thread => (thread.title + " " + thread.project).toLowerCase().includes(search))
-    .sort((left, right) => right.updatedAt - left.updatedAt);
+  const { rows, hasMore } = getThreadRows(threads, projects, {
+    sourceId: request.message.threadId,
+    search,
+    expanded,
+    rootLimit,
+  });
+
+  function toggleChildren(threadId: string) {
+    setExpanded(current => {
+      const next = new Set(current);
+      if (next.has(threadId)) next.delete(threadId);
+      else next.add(threadId);
+      return next;
+    });
+  }
 
   useEffect(() => {
     const element = dialog.current;
@@ -184,7 +191,7 @@ function ThreadPicker({ request, busy, onChoose }: {
             value={query}
             onChange={event => {
               setQuery(event.target.value);
-              setLimit(30);
+              setRootLimit(rootPageSize);
             }}
           />
           <div className="message-forward-modes" role="group" aria-label="Что добавить в черновик">
@@ -198,23 +205,55 @@ function ThreadPicker({ request, busy, onChoose }: {
           </p>
         )}
         <ul className="message-forward-targets">
-          {targets.slice(0, limit).map(target => (
-            <li key={target.id}>
-              <button
-                type="button"
-                disabled={busy || !content.trim()}
-                onClick={() => onChoose(target.id, content)}
-              >
-                <span>{target.title}</span>
-                {target.project && <small>{target.project}</small>}
+          {rows.map((row, index) => {
+            const { thread, rootProjectId, rootProjectName, otherProjectName, depth, hasChildren } = row;
+            const isSource = thread.id === request.message.threadId;
+            const isExpanded = expanded.has(thread.id);
+            const title = thread.displayTitle + " · " + (otherProjectName ?? rootProjectName);
+            return (
+              <Fragment key={thread.id}>
+                {rows[index - 1]?.rootProjectId !== rootProjectId && (
+                  <li className="message-forward-project">{rootProjectName}</li>
+                )}
+                <li
+                  className="message-forward-row"
+                  style={{ paddingInlineStart: Math.min(depth, 6) * 14 }}
+                >
+                  {hasChildren && !search ? (
+                    <button
+                      type="button"
+                      className="message-forward-toggle"
+                      aria-label={(isExpanded ? "Свернуть: " : "Развернуть: ") + thread.displayTitle}
+                      aria-expanded={isExpanded}
+                      onClick={() => toggleChildren(thread.id)}
+                    >
+                      <span aria-hidden="true">{isExpanded ? "⌄" : "›"}</span>
+                    </button>
+                  ) : <span className="message-forward-toggle" />}
+                  <button
+                    type="button"
+                    className="message-forward-target"
+                    title={thread.displayTitle}
+                    aria-label={title}
+                    disabled={isSource || busy || !content.trim()}
+                    onClick={() => onChoose(thread.id, content)}
+                  >
+                    <span>{thread.displayTitle}</span>
+                    {otherProjectName && <small>{otherProjectName}</small>}
+                  </button>
+                </li>
+              </Fragment>
+            );
+          })}
+          {hasMore && (
+            <li>
+              <button type="button" onClick={() => setRootLimit(current => current + rootPageSize)}>
+                Показать ещё
               </button>
             </li>
-          ))}
-          {targets.length > limit && (
-            <li><button type="button" onClick={() => setLimit(limit + 30)}>Показать ещё</button></li>
           )}
         </ul>
-        {targets.length === 0 && (
+        {rows.length === 0 && (
           <p role="status">
             {status === "loading" ? "Загружаю чаты…" : status === "error" ? "Не удалось загрузить чаты" : "Чаты не найдены"}
           </p>
