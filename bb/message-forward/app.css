@@ -1,13 +1,13 @@
 .message-forward-picker {
-  width: min(440px, calc(100% - 32px));
+  width: min(438px, calc(100% - 32px));
   max-height: calc(100% - 32px);
   margin: auto;
   padding: 0;
   color: var(--popover-foreground);
   background: var(--popover);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
 }
 
 .message-forward-picker::backdrop {
@@ -15,7 +15,7 @@
 }
 
 .message-forward-picker section {
-  padding: 12px;
+  padding: 14px;
 }
 
 .message-forward-picker header,
@@ -28,13 +28,13 @@
 
 .message-forward-picker header {
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .message-forward-picker h2 {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 650;
 }
 
 .message-forward-picker button {
@@ -65,27 +65,50 @@
 .message-forward-form input {
   min-width: 0;
   flex: 1;
+  height: 30px;
   font: inherit;
-  padding: 6px 8px;
+  font-size: 13px;
+  padding: 0 9px;
   border: 1px solid var(--input);
   border-radius: 6px;
   background: var(--background);
 }
 
+.message-forward-form {
+  gap: 8px;
+}
+
 .message-forward-modes {
   flex-shrink: 0;
+  gap: 2px;
+  padding: 2px;
+  background: var(--muted);
+  border-radius: 6px;
+}
+
+.message-forward-picker .message-forward-modes button {
+  height: 25px;
+  padding: 0 8px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.message-forward-picker .message-forward-modes button[aria-pressed="true"] {
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-xs);
 }
 
 .message-forward-targets {
   list-style: none;
-  margin: 8px 0 0;
+  margin: 0;
   padding: 0;
-  max-height: min(300px, 48dvh);
+  max-height: min(265px, 48dvh);
   overflow: auto;
 }
 
 .message-forward-project {
-  padding: 6px 6px 3px;
+  padding: 11px 6px 4px;
   color: var(--muted-foreground);
   font-size: 11px;
   font-weight: 600;
@@ -95,14 +118,28 @@
 .message-forward-row {
   display: flex;
   align-items: center;
+  min-height: 27px;
+}
+
+.message-forward-branch {
+  align-self: stretch;
+  flex: 0 0 auto;
+  background: repeating-linear-gradient(
+    to right,
+    transparent 0 10px,
+    var(--border) 10px 11px,
+    transparent 11px 22px
+  );
 }
 
 .message-forward-picker .message-forward-toggle {
-  width: 22px;
-  flex: 0 0 22px;
+  width: 24px;
+  flex: 0 0 24px;
   padding: 0;
-  line-height: 26px;
+  height: 24px;
+  line-height: 1;
   color: var(--muted-foreground);
+  font-size: 15px;
 }
 
 .message-forward-picker .message-forward-target {
@@ -111,7 +148,7 @@
   display: flex;
   align-items: baseline;
   gap: 6px;
-  padding: 4px 6px;
+  padding: 4px 7px;
   font-size: 13px;
   line-height: 18px;
   text-align: start;
@@ -132,9 +169,6 @@
 }
 
 .message-forward-picker p {
-  color: var(--muted-foreground);
-}
-
-.message-forward-picker p {
   margin: 8px;
+  color: var(--muted-foreground);
 }

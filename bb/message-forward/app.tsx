@@ -186,8 +186,8 @@ function ThreadPicker({ request, busy, onChoose }: {
           <input
             ref={searchInput}
             type="search"
-            aria-label="Поиск чата"
-            placeholder="Поиск чата"
+            aria-label="Поиск чата или проекта"
+            placeholder="Поиск чата или проекта"
             value={query}
             onChange={event => {
               setQuery(event.target.value);
@@ -215,10 +215,14 @@ function ThreadPicker({ request, busy, onChoose }: {
                 {rows[index - 1]?.rootProjectId !== rootProjectId && (
                   <li className="message-forward-project">{rootProjectName}</li>
                 )}
-                <li
-                  className="message-forward-row"
-                  style={{ paddingInlineStart: Math.min(depth, 6) * 14 }}
-                >
+                <li className="message-forward-row">
+                  {depth > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="message-forward-branch"
+                      style={{ width: depth * 22 }}
+                    />
+                  )}
                   {hasChildren && !search ? (
                     <button
                       type="button"
@@ -227,7 +231,7 @@ function ThreadPicker({ request, busy, onChoose }: {
                       aria-expanded={isExpanded}
                       onClick={() => toggleChildren(thread.id)}
                     >
-                      <span aria-hidden="true">{isExpanded ? "⌄" : "›"}</span>
+                      <span aria-hidden="true">{isExpanded ? "▾" : "▸"}</span>
                     </button>
                   ) : <span className="message-forward-toggle" />}
                   <button
