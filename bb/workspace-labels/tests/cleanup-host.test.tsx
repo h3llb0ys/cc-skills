@@ -12,12 +12,16 @@ test('protects live environment paths inside the worktree, including aliases', a
   const child = join(worktree, 'backend');
   const sibling = join(root, 'task-other');
   const alias = join(root, 'alias');
+  const rootAlias = join(root, 'root-alias');
   const outward = join(worktree, 'plugin');
   mkdirSync(child, { recursive: true });
   mkdirSync(sibling);
   symlinkSync(child, alias, 'dir');
+  symlinkSync(worktree, rootAlias, 'dir');
   symlinkSync(sibling, outward, 'dir');
-  const candidates = [worktree, child, sibling, alias, outward, join(root, 'missing')];
+  const candidates = [worktree, child, sibling, alias, rootAlias, outward, join(root, 'missing')];
   const result = await host.handlers.worktreePathsInUse({ path: worktree, candidates }, {} as never);
-  assert.deepEqual(result, [worktree, child, alias, outward]);
+  assert.deepEqual(result, [worktree, child, alias, rootAlias, outward]);
+  const nested = await host.handlers.worktreePathsInUse({ path: worktree, candidates, excludeRoot: true }, {} as never);
+  assert.deepEqual(nested, [child, alias, outward]);
 });

@@ -23,12 +23,13 @@ export default experimental_defineHostEntry({
         key, await worktreeState(path, expected, signal),
       ])));
     },
-    async worktreePathsInUse({ path, candidates }) {
+    async worktreePathsInUse({ path, candidates, excludeRoot }) {
       const root = await realpath(path);
       const matches = await Promise.all(candidates.map(async candidate => {
         try {
           const isInside = (directory: string, file: string) => {
             const difference = relative(directory, file);
+            if (difference === '') return !excludeRoot;
             return difference !== '..' && !difference.startsWith('..' + sep) && !isAbsolute(difference);
           };
           if (isInside(resolve(path), candidate) || isInside(root, candidate)) return candidate;

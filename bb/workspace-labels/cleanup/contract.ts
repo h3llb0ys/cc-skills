@@ -64,7 +64,7 @@ export const hostCleanup = defineRpcContract({
     experimental_retryable: true,
   },
   worktreePathsInUse: {
-    input: z.object({ path: z.string(), candidates: z.array(z.string()).max(200) }),
+    input: z.object({ path: z.string(), candidates: z.array(z.string()).max(200), excludeRoot: z.boolean().optional() }),
     output: z.array(z.string()),
     experimental_retryable: true,
   },

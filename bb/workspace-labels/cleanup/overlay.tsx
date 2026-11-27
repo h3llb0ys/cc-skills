@@ -118,9 +118,12 @@ function CleanupRequest({ current }: { current: Request }) {
           {preview.path && <p className="workspace-cleanup-path">{preview.path}</p>}
           {deleting && <p>История треда будет удалена без возможности восстановления.</p>}
           {relatedThreadCount > 0 && (
-            <p>BB архивирует связанные треды ({relatedThreadCount}). Внешние worktree можно очистить отдельно в виджете Worktrees.</p>
+            <p>BB архивирует связанные треды ({relatedThreadCount}).</p>
           )}
           {nativeLifecycle && <p>BB может удалить управляемые окружения вместе с локальными файлами.</p>}
+          {relatedThreadCount > 0 && inspection && (
+            <p>{inspection.branch ? 'Будут удалены worktree текущего треда и его локальная ветка.' : 'Будет удалён worktree текущего треда.'}</p>
+          )}
           {standalone && <p>Будут удалены worktree и его локальная ветка.</p>}
           {inspection && inspection.fileCount > 0 && (
             <p>Будут удалены незакоммиченные и игнорируемые файлы ({inspection.fileCount}).</p>
