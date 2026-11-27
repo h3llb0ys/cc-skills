@@ -21,6 +21,15 @@ as supplied by BB. With no icon, the label retains its original width. The plugi
 does not rename projects or sections. Settings follow stable IDs through renames
 and sync across BB clients via plugin storage and realtime updates.
 
+## Collapse controls
+
+With BB’s Rail navigation and standard Thread list, the sidebar header has two
+buttons. The first collapses expanded thread branches. The second also
+collapses open groups in the current layout.
+Both use BB's existing row controls. They act on rows currently rendered by
+the Thread list, so branches inside already closed groups and rows BB has
+unmounted while scrolling keep their state.
+
 ## Installation
 
 [Install or update from GitHub or a local checkout](../README.md).

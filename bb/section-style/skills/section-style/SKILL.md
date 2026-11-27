@@ -11,3 +11,7 @@ and set a heading font size from 10 to 18 px. Save, cancel or reset.
 It does not manage thread order, grouping, indentation, names, or directories.
 It uses a content script because BB has no heading-decoration slot. For another
 sidebar provider, use that provider's own appearance controls.
+
+With Rail navigation and the standard Thread list, two buttons in the sidebar
+header collapse expanded thread branches or those branches and open groups.
+Both act on rows currently rendered by BB.

@@ -41,3 +41,31 @@
 .section-style-dialog form { display:flex; flex-direction:column; max-height:calc(100dvh - 94px); }
 .section-style-editor-body { flex:1 1 auto; min-height:0; overflow:auto; padding-inline-end:4px; }
 .section-style-dialog footer { flex-shrink:0; border-top:1px solid var(--border); padding-top:12px; margin-top:16px; }
+
+[data-section-style-collapse] {
+ display:inline-flex;
+ flex-shrink:0;
+ margin-inline-start:auto;
+ align-items:center;
+ border:1px solid var(--border);
+ border-radius:6px;
+ overflow:hidden;
+ color:var(--sidebar-foreground, var(--foreground));
+ -webkit-app-region:no-drag;
+ app-region:no-drag;
+}
+[data-section-style-collapse] button {
+ display:grid;
+ place-items:center;
+ width:var(--bb-sidebar-control-size, 28px);
+ height:calc(var(--bb-sidebar-control-size, 28px) - 2px);
+ padding:0;
+ border:0;
+ background:transparent;
+ color:inherit;
+ cursor:pointer;
+}
+[data-section-style-collapse] button + button { border-inline-start:1px solid var(--border); }
+[data-section-style-collapse] button:hover { background:var(--sidebar-accent, var(--accent)); }
+[data-section-style-collapse] button:focus-visible { outline:1px solid var(--ring); outline-offset:-2px; }
+[data-section-style-collapse] svg { width:var(--bb-sidebar-control-icon-size, 16px); height:var(--bb-sidebar-control-icon-size, 16px); }
