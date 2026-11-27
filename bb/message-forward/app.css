@@ -1,0 +1,102 @@
+.message-forward-picker {
+  width: min(440px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  margin: auto;
+  padding: 0;
+  color: var(--popover-foreground);
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+
+.message-forward-picker::backdrop {
+  background: rgb(0 0 0 / 40%);
+}
+
+.message-forward-picker section {
+  padding: 14px;
+}
+
+.message-forward-picker header,
+.message-forward-form,
+.message-forward-modes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.message-forward-picker header {
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.message-forward-picker h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.message-forward-picker button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.message-forward-picker button:is(:hover, [aria-pressed="true"]):not(:disabled) {
+  color: var(--accent-foreground);
+  background: var(--accent);
+}
+
+.message-forward-picker button:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
+.message-forward-picker :is(button, input):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.message-forward-form input {
+  min-width: 0;
+  flex: 1;
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--input);
+  border-radius: 6px;
+  background: var(--background);
+}
+
+.message-forward-modes {
+  flex-shrink: 0;
+}
+
+.message-forward-targets {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: min(300px, 48dvh);
+  overflow: auto;
+}
+
+.message-forward-targets button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.message-forward-targets small,
+.message-forward-picker p {
+  color: var(--muted-foreground);
+}
+
+.message-forward-picker p {
+  margin: 8px;
+}

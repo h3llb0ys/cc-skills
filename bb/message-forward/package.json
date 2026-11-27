@@ -1,0 +1,26 @@
+{
+  "name": "bb-plugin-message-forward",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "bb": ">=0.50.1",
+    "bbPluginSdk": ">=0.6.157"
+  },
+  "bb": {
+    "name": "Message Forward",
+    "description": "Add a chat message or its link to another BB thread’s draft.",
+    "branding": { "icon": "ArrowTurnBackward" },
+    "server": "./server.ts",
+    "app": "./app.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "bb plugin build ."
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.157",
+    "@types/react": "^19.0.0",
+    "sonner": "^1.7.4",
+    "typescript": "^5.7.0"
+  }
+}

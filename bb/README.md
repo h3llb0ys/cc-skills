@@ -9,6 +9,7 @@
 | [GitLab MR](gitlab-mr/README.md) | `bb/gitlab-mr` | `gitlab-mr` |
 | [Jira Thread Links](jira-thread-links/README.md) | `bb/jira-thread-links` | `jira-thread-links` |
 | [Mattermost](mattermost/README.md) | `bb/mattermost` | `mattermost` |
+| [Message Forward](message-forward/README.md) | `bb/message-forward` | `message-forward` |
 | [MR cycle](mr-cycle/README.md) | `bb/mr-cycle` | `mr-cycle` |
 | [Provider Limits](provider-limits/README.md) | `bb/provider-limits` | `provider-limits` |
 | [Section Style](section-style/README.md) | `bb/section-style` | `section-style` |
